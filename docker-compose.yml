@@ -5,4 +5,27 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app/app
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://system1:system1@db:5432/system1
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    container_name: system1-db
+    environment:
+      POSTGRES_USER: system1
+      POSTGRES_PASSWORD: system1
+      POSTGRES_DB: system1
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U system1 -d system1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
