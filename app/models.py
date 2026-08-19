@@ -1,6 +1,14 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -65,4 +73,52 @@ class Task(Base):
 
     children: Mapped[list["Task"]] = relationship(
         back_populates="parent",
+    )
+
+    daily_tasks: Mapped[list["DailyTask"]] = relationship(
+        back_populates="task",
+    )
+
+class DailyTask(Base):
+    __tablename__ = "daily_tasks"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "date",
+            name="uq_daily_task_task_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id"),
+        nullable=False,
+    )
+
+    date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    planned_sessions: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
+
+    task: Mapped["Task"] = relationship(
+        back_populates="daily_tasks",
     )
