@@ -1,5 +1,13 @@
 <ul class="task-tree">
+
     {% for task in tasks %}
-        {% include "partials/task_item.html" %}
+
+        {% if show_inactive or task.status == "active" %}
+
+            {% include "partials/task_item.html" %}
+
+        {% endif %}
+
     {% endfor %}
+
 </ul>

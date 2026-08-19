@@ -1,49 +1,62 @@
 <li id="task-{{ task.id }}" class="task-item">
 
     <div class="task-row">
+
         <span
-    class="
-        task-title
-        {% if task.status == 'completed' %}task-completed{% endif %}
-        {% if task.status == 'cancelled' %}task-cancelled{% endif %}
-    ">
-    {{ task.title }}
-</span>
+            class="
+                task-title
+                {% if task.status == 'completed' %}task-completed{% endif %}
+                {% if task.status == 'cancelled' %}task-cancelled{% endif %}
+            "
+        >
+            {{ task.title }}
+        </span>
+
 
         {% if task.status == "active" %}
 
             <button
                 type="button"
                 hx-post="/tasks/{{ task.id }}/complete"
-                hx-target="#task-{{ task.id }}"
-                hx-swap="outerHTML"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
             >
                 Complete
             </button>
 
+
             <button
                 type="button"
                 hx-post="/tasks/{{ task.id }}/cancel"
-                hx-target="#task-{{ task.id }}"
-                hx-swap="outerHTML"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
             >
                 Cancel
             </button>
-            
+
+
             <button
                 type="button"
                 hx-get="/tasks/{{ task.id }}/edit"
                 hx-target="#task-{{ task.id }}"
                 hx-swap="outerHTML"
+                hx-include="#show-inactive"
             >
                 Edit
             </button>
-            
+
+
             <button
                 type="button"
                 class="subtask-toggle"
                 onclick="
-                    const form = document.getElementById('subtask-form-{{ task.id }}');
+                    const form =
+                        document.getElementById(
+                            'subtask-form-{{ task.id }}'
+                        );
+
                     form.hidden = !form.hidden;
                 "
             >
@@ -51,14 +64,14 @@
             </button>
 
 
-
         {% else %}
 
             <button
                 type="button"
                 hx-post="/tasks/{{ task.id }}/reopen"
-                hx-target="#task-{{ task.id }}"
-                hx-swap="outerHTML"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
             >
                 Reopen
             </button>
@@ -67,36 +80,55 @@
 
     </div>
 
+
     {% if task.status == "active" %}
 
-    <form
-        id="subtask-form-{{ task.id }}"
-        class="subtask-form"
-        hidden
-        hx-post="/tasks/{{ task.id }}/subtasks"
-        hx-target="#children-{{ task.id }}"
-        hx-swap="beforeend"
-        hx-on::after-request="this.reset(); this.hidden = true;"
-    >
-        <input
-            type="text"
-            name="title"
-            placeholder="New subtask"
-            required
+        <form
+            id="subtask-form-{{ task.id }}"
+            class="subtask-form"
+            hidden
+            hx-post="/tasks/{{ task.id }}/subtasks"
+            hx-target="#task-list"
+            hx-swap="innerHTML"
+            hx-include="#show-inactive"
+            hx-on::after-request="
+                this.reset();
+                this.hidden = true;
+            "
         >
 
-        <button type="submit">
-            Add
-        </button>
-    </form>
+            <input
+                type="text"
+                name="title"
+                placeholder="New subtask"
+                required
+            >
+
+            <button type="submit">
+                Add
+            </button>
+
+        </form>
 
     {% endif %}
 
-    <ul id="children-{{ task.id }}" class="task-children">
+
+    <ul
+        id="children-{{ task.id }}"
+        class="task-children"
+    >
+
         {% for child in task.children %}
-            {% set task = child %}
-            {% include "partials/task_item.html" %}
+
+            {% if show_inactive or child.status == "active" %}
+
+                {% set task = child %}
+                {% include "partials/task_item.html" %}
+
+            {% endif %}
+
         {% endfor %}
+
     </ul>
 
 </li>

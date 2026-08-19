@@ -57,3 +57,7 @@ section {
     opacity: 0.45;
     font-style: italic;
 }
+
+.task-controls {
+    margin: 1rem 0;
+}

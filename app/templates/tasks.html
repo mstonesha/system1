@@ -7,12 +7,14 @@ Tasks | System 1
 {% block content %}
 
 <section>
+
     <h2>Tasks</h2>
 
     <form
         hx-post="/tasks/create"
         hx-target="#task-list"
-        hx-swap="beforeend"
+        hx-swap="innerHTML"
+        hx-include="#show-inactive"
         hx-on::after-request="this.reset()"
     >
         <input
@@ -27,11 +29,32 @@ Tasks | System 1
         </button>
     </form>
 
-    <ul id="task-list">
-        {% for task in tasks %}
-            {% include "partials/task_item.html" %}
-        {% endfor %}
-    </ul>
+
+    <div class="task-controls">
+
+        <label>
+            <input
+                id="show-inactive"
+                type="checkbox"
+                name="show_inactive"
+                value="true"
+                hx-get="/task-tree"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-trigger="change"
+                hx-include="this"
+            >
+
+            Show inactive tasks
+        </label>
+
+    </div>
+
+
+    <div id="task-list">
+        {% include "partials/task_tree.html" %}
+    </div>
+
 </section>
 
 {% endblock %}

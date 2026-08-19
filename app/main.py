@@ -10,7 +10,6 @@ from app.database import get_db
 from app.models import Task
 
 
-
 app = FastAPI(title="System 1")
 
 app.mount(
@@ -23,25 +22,72 @@ templates = Jinja2Templates(
     directory="app/templates",
 )
 
-@app.get("/")
-def home(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    tasks = (
+
+# ---------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------
+
+def get_root_tasks(db: Session):
+    return (
         db.query(Task)
         .filter(Task.parent_task_id.is_(None))
         .order_by(Task.sort_order, Task.created_at)
         .all()
     )
 
+
+def render_task_tree(
+    request: Request,
+    db: Session,
+    show_inactive: bool = False,
+):
+    tasks = get_root_tasks(db)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_tree.html",
+        context={
+            "tasks": tasks,
+            "show_inactive": show_inactive,
+        },
+    )
+
+
+def has_active_descendants(task: Task) -> bool:
+    for child in task.children:
+        if child.status == "active":
+            return True
+
+        if has_active_descendants(child):
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------
+# Main page
+# ---------------------------------------------------------
+
+@app.get("/")
+def home(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    tasks = get_root_tasks(db)
+
     return templates.TemplateResponse(
         request=request,
         name="tasks.html",
         context={
             "tasks": tasks,
+            "show_inactive": False,
         },
     )
+
+
+# ---------------------------------------------------------
+# JSON/API routes
+# ---------------------------------------------------------
 
 @app.get("/tasks")
 def list_tasks(
@@ -49,12 +95,13 @@ def list_tasks(
 ):
     return db.query(Task).all()
 
+
 @app.post("/tasks")
 def create_task(
     title: str,
     db: Session = Depends(get_db),
 ):
-    task = Task(title=title)
+    task = Task(title=title.strip())
 
     db.add(task)
     db.commit()
@@ -62,31 +109,53 @@ def create_task(
 
     return task
 
+
+# ---------------------------------------------------------
+# Task-tree filtering
+# ---------------------------------------------------------
+
+@app.get("/task-tree")
+def task_tree(
+    request: Request,
+    show_inactive: bool = False,
+    db: Session = Depends(get_db),
+):
+    return render_task_tree(
+        request=request,
+        db=db,
+        show_inactive=show_inactive,
+    )
+
+
+# ---------------------------------------------------------
+# Create tasks
+# ---------------------------------------------------------
+
 @app.post("/tasks/create")
 def create_task_from_form(
     request: Request,
     title: str = Form(...),
+    show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
-    task = Task(title=title)
+    task = Task(title=title.strip())
 
     db.add(task)
     db.commit()
-    db.refresh(task)
 
-    return templates.TemplateResponse(
+    return render_task_tree(
         request=request,
-        name="partials/task_item.html",
-        context={
-            "task": task,
-        },
+        db=db,
+        show_inactive=show_inactive,
     )
+
 
 @app.post("/tasks/{parent_id}/subtasks")
 def create_subtask(
     parent_id: int,
     request: Request,
     title: str = Form(...),
+    show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     parent = db.get(Task, parent_id)
@@ -104,26 +173,29 @@ def create_subtask(
         )
 
     task = Task(
-        title=title,
+        title=title.strip(),
         parent_task_id=parent_id,
     )
 
     db.add(task)
     db.commit()
-    db.refresh(task)
 
-    return templates.TemplateResponse(
+    return render_task_tree(
         request=request,
-        name="partials/task_item.html",
-        context={
-            "task": task,
-        },
+        db=db,
+        show_inactive=show_inactive,
     )
+
+
+# ---------------------------------------------------------
+# Task status
+# ---------------------------------------------------------
 
 @app.post("/tasks/{task_id}/complete")
 def complete_task(
     task_id: int,
     request: Request,
+    show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     task = db.get(Task, task_id)
@@ -134,7 +206,7 @@ def complete_task(
             status_code=404,
         )
 
-    if has_active_children(task):
+    if has_active_descendants(task):
         return HTMLResponse(
             content="Cannot complete this task while it has active subtasks.",
             status_code=409,
@@ -144,55 +216,19 @@ def complete_task(
     task.completed_at = datetime.utcnow()
 
     db.commit()
-    db.refresh(task)
 
-    return templates.TemplateResponse(
+    return render_task_tree(
         request=request,
-        name="partials/task_item.html",
-        context={
-            "task": task,
-        },
+        db=db,
+        show_inactive=show_inactive,
     )
 
-
-@app.post("/tasks/{task_id}/reopen")
-def reopen_task(
-    task_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    task = db.get(Task, task_id)
-
-    if task is None:
-        return HTMLResponse(
-            content="Task not found",
-            status_code=404,
-        )
-
-    task.status = "active"
-    task.completed_at = None
-
-    db.commit()
-    db.refresh(task)
-
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/task_item.html",
-        context={
-            "task": task,
-        },
-    )
-
-def has_active_children(task: Task) -> bool:
-    return any(
-        child.status == "active"
-        for child in task.children
-    )
 
 @app.post("/tasks/{task_id}/cancel")
 def cancel_task(
     task_id: int,
     request: Request,
+    show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     task = db.get(Task, task_id)
@@ -207,20 +243,50 @@ def cancel_task(
     task.completed_at = None
 
     db.commit()
-    db.refresh(task)
 
-    return templates.TemplateResponse(
+    return render_task_tree(
         request=request,
-        name="partials/task_item.html",
-        context={
-            "task": task,
-        },
+        db=db,
+        show_inactive=show_inactive,
     )
+
+
+@app.post("/tasks/{task_id}/reopen")
+def reopen_task(
+    task_id: int,
+    request: Request,
+    show_inactive: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    task.status = "active"
+    task.completed_at = None
+
+    db.commit()
+
+    return render_task_tree(
+        request=request,
+        db=db,
+        show_inactive=show_inactive,
+    )
+
+
+# ---------------------------------------------------------
+# Editing
+# ---------------------------------------------------------
 
 @app.get("/tasks/{task_id}/edit")
 def edit_task_form(
     task_id: int,
     request: Request,
+    show_inactive: bool = False,
     db: Session = Depends(get_db),
 ):
     task = db.get(Task, task_id)
@@ -242,8 +308,10 @@ def edit_task_form(
         name="partials/task_edit.html",
         context={
             "task": task,
+            "show_inactive": show_inactive,
         },
     )
+
 
 @app.post("/tasks/{task_id}/edit")
 def update_task(
@@ -276,6 +344,7 @@ def update_task(
         name="partials/task_item.html",
         context={
             "task": task,
+            "show_inactive": False,
         },
     )
 
@@ -299,5 +368,6 @@ def view_task(
         name="partials/task_item.html",
         context={
             "task": task,
+            "show_inactive": False,
         },
     )
