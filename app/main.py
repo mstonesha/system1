@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, Form, Request
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -71,6 +72,38 @@ def create_task_from_form(
     db: Session = Depends(get_db),
 ):
     task = Task(title=title)
+
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+@app.post("/tasks/{parent_id}/subtasks")
+def create_subtask(
+    parent_id: int,
+    request: Request,
+    title: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    parent = db.get(Task, parent_id)
+
+    if parent is None:
+        return HTMLResponse(
+            content="Parent task not found",
+            status_code=404,
+        )
+
+    task = Task(
+        title=title,
+        parent_task_id=parent_id,
+    )
 
     db.add(task)
     db.commit()

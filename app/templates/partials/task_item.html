@@ -1,3 +1,48 @@
-<li id="task-{{ task.id }}">
-    {{ task.title }}
+<li id="task-{{ task.id }}" class="task-item">
+
+    <div class="task-row">
+        <span class="task-title">
+            {{ task.title }}
+        </span>
+
+        <button
+            type="button"
+            class="subtask-toggle"
+            onclick="
+                const form = document.getElementById('subtask-form-{{ task.id }}');
+                form.hidden = !form.hidden;
+            "
+        >
+            + Subtask
+        </button>
+    </div>
+
+    <form
+        id="subtask-form-{{ task.id }}"
+        class="subtask-form"
+        hidden
+        hx-post="/tasks/{{ task.id }}/subtasks"
+        hx-target="#children-{{ task.id }}"
+        hx-swap="beforeend"
+        hx-on::after-request="this.reset(); this.hidden = true;"
+    >
+        <input
+            type="text"
+            name="title"
+            placeholder="New subtask"
+            required
+        >
+
+        <button type="submit">
+            Add
+        </button>
+    </form>
+
+    <ul id="children-{{ task.id }}" class="task-children">
+        {% for child in task.children %}
+            {% set task = child %}
+            {% include "partials/task_item.html" %}
+        {% endfor %}
+    </ul>
+
 </li>
