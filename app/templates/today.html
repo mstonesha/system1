@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}
+Today | System 1
+{% endblock %}
+
+{% block content %}
+
+<section>
+
+    <h2>
+        {{ selected_date.strftime("%A %d %B %Y") }}
+    </h2>
+    <nav class="date-navigation">
+        <a href="/today/page?target_date={{ previous_date }}">
+            ← Previous
+        </a>
+
+        <a href="/today/page">
+            Today
+        </a>
+
+        <a href="/today/page?target_date={{ next_date }}">
+            Next →
+        </a>
+    </nav>
+
+    <h3>Today</h3>
+
+    {% if daily_tasks %}
+
+    <ul class="daily-task-list">
+
+        {% for daily_task in daily_tasks %}
+
+            <li>
+                <strong>
+                    {{ daily_task.task.title }}
+                </strong>
+
+                <span>
+                    Planned sessions:
+                    {{ daily_task.planned_sessions or 0 }}
+                </span>
+
+                <form
+                    method="post"
+                    action="/today/{{ daily_task.id }}/remove-from-page"
+                    style="display: inline;"
+                >
+                    <input
+                        type="hidden"
+                        name="target_date"
+                        value="{{ selected_date }}"
+                    >
+
+                    <button type="submit">
+                        Remove
+                    </button>
+                </form>
+            </li>
+
+        {% endfor %}
+
+    </ul>
+
+{% else %}
+
+    <p>No tasks planned for this day.</p>
+
+{% endif %}
+
+
+    <h3>Add task</h3>
+
+    <form method="post" action="/today/add-from-page">
+
+        <input
+            type="hidden"
+            name="target_date"
+            value="{{ selected_date }}"
+        >
+
+        <label>
+            Task
+
+            <select name="task_id" required>
+
+                {% for task in active_tasks %}
+
+                    <option value="{{ task.id }}">
+                        {{ task.title }}
+                    </option>
+
+                {% endfor %}
+
+            </select>
+        </label>
+
+        <label>
+            Planned sessions
+
+            <input
+                type="number"
+                name="planned_sessions"
+                min="1"
+                value="1"
+            >
+        </label>
+
+        <button type="submit">
+            Add to day
+        </button>
+
+    </form>
+
+</section>
+
+{% endblock %}
