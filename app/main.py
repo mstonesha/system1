@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -6,11 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Task
-from datetime import datetime
+
 
 
 app = FastAPI(title="System 1")
-
 
 app.mount(
     "/static",
@@ -18,11 +19,9 @@ app.mount(
     name="static",
 )
 
-
 templates = Jinja2Templates(
     directory="app/templates",
 )
-
 
 @app.get("/")
 def home(
@@ -44,13 +43,11 @@ def home(
         },
     )
 
-
 @app.get("/tasks")
 def list_tasks(
     db: Session = Depends(get_db),
 ):
     return db.query(Task).all()
-
 
 @app.post("/tasks")
 def create_task(
@@ -64,7 +61,6 @@ def create_task(
     db.refresh(task)
 
     return task
-
 
 @app.post("/tasks/create")
 def create_task_from_form(
@@ -212,6 +208,91 @@ def cancel_task(
 
     db.commit()
     db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+@app.get("/tasks/{task_id}/edit")
+def edit_task_form(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    if task.status != "active":
+        return HTMLResponse(
+            content="Only active tasks can be edited.",
+            status_code=409,
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_edit.html",
+        context={
+            "task": task,
+        },
+    )
+
+@app.post("/tasks/{task_id}/edit")
+def update_task(
+    task_id: int,
+    request: Request,
+    title: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    if task.status != "active":
+        return HTMLResponse(
+            content="Only active tasks can be edited.",
+            status_code=409,
+        )
+
+    task.title = title.strip()
+
+    db.commit()
+    db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+
+@app.get("/tasks/{task_id}/view")
+def view_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
 
     return templates.TemplateResponse(
         request=request,

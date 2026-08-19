@@ -1,0 +1,37 @@
+<li id="task-{{ task.id }}" class="task-item">
+
+    <form
+        hx-post="/tasks/{{ task.id }}/edit"
+        hx-target="#task-{{ task.id }}"
+        hx-swap="outerHTML"
+    >
+        <input
+            type="text"
+            name="title"
+            value="{{ task.title }}"
+            required
+            autofocus
+        >
+
+        <button type="submit">
+            Save
+        </button>
+
+        <button
+            type="button"
+            hx-get="/tasks/{{ task.id }}/view"
+            hx-target="#task-{{ task.id }}"
+            hx-swap="outerHTML"
+        >
+            Cancel
+        </button>
+    </form>
+
+    <ul id="children-{{ task.id }}" class="task-children">
+        {% for child in task.children %}
+            {% set task = child %}
+            {% include "partials/task_item.html" %}
+        {% endfor %}
+    </ul>
+
+</li>

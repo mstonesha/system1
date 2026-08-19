@@ -29,7 +29,16 @@
             >
                 Cancel
             </button>
-
+            
+            <button
+                type="button"
+                hx-get="/tasks/{{ task.id }}/edit"
+                hx-target="#task-{{ task.id }}"
+                hx-swap="outerHTML"
+            >
+                Edit
+            </button>
+            
             <button
                 type="button"
                 class="subtask-toggle"
@@ -40,6 +49,8 @@
             >
                 + Subtask
             </button>
+
+
 
         {% else %}
 
