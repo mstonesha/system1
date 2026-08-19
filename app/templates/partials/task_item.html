@@ -1,21 +1,62 @@
 <li id="task-{{ task.id }}" class="task-item">
 
     <div class="task-row">
-        <span class="task-title">
-            {{ task.title }}
-        </span>
+        <span
+    class="
+        task-title
+        {% if task.status == 'completed' %}task-completed{% endif %}
+        {% if task.status == 'cancelled' %}task-cancelled{% endif %}
+    ">
+    {{ task.title }}
+</span>
 
-        <button
-            type="button"
-            class="subtask-toggle"
-            onclick="
-                const form = document.getElementById('subtask-form-{{ task.id }}');
-                form.hidden = !form.hidden;
-            "
-        >
-            + Subtask
-        </button>
+        {% if task.status == "active" %}
+
+            <button
+                type="button"
+                hx-post="/tasks/{{ task.id }}/complete"
+                hx-target="#task-{{ task.id }}"
+                hx-swap="outerHTML"
+            >
+                Complete
+            </button>
+
+            <button
+                type="button"
+                hx-post="/tasks/{{ task.id }}/cancel"
+                hx-target="#task-{{ task.id }}"
+                hx-swap="outerHTML"
+            >
+                Cancel
+            </button>
+
+            <button
+                type="button"
+                class="subtask-toggle"
+                onclick="
+                    const form = document.getElementById('subtask-form-{{ task.id }}');
+                    form.hidden = !form.hidden;
+                "
+            >
+                + Subtask
+            </button>
+
+        {% else %}
+
+            <button
+                type="button"
+                hx-post="/tasks/{{ task.id }}/reopen"
+                hx-target="#task-{{ task.id }}"
+                hx-swap="outerHTML"
+            >
+                Reopen
+            </button>
+
+        {% endif %}
+
     </div>
+
+    {% if task.status == "active" %}
 
     <form
         id="subtask-form-{{ task.id }}"
@@ -37,6 +78,8 @@
             Add
         </button>
     </form>
+
+    {% endif %}
 
     <ul id="children-{{ task.id }}" class="task-children">
         {% for child in task.children %}

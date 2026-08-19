@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Task
+from datetime import datetime
 
 
 app = FastAPI(title="System 1")
@@ -100,12 +101,115 @@ def create_subtask(
             status_code=404,
         )
 
+    if parent.status != "active":
+        return HTMLResponse(
+            content="Subtasks can only be added to active tasks.",
+            status_code=409,
+        )
+
     task = Task(
         title=title,
         parent_task_id=parent_id,
     )
 
     db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+@app.post("/tasks/{task_id}/complete")
+def complete_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    if has_active_children(task):
+        return HTMLResponse(
+            content="Cannot complete this task while it has active subtasks.",
+            status_code=409,
+        )
+
+    task.status = "completed"
+    task.completed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+
+@app.post("/tasks/{task_id}/reopen")
+def reopen_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    task.status = "active"
+    task.completed_at = None
+
+    db.commit()
+    db.refresh(task)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_item.html",
+        context={
+            "task": task,
+        },
+    )
+
+def has_active_children(task: Task) -> bool:
+    return any(
+        child.status == "active"
+        for child in task.children
+    )
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    task.status = "cancelled"
+    task.completed_at = None
+
     db.commit()
     db.refresh(task)
 
