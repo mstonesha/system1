@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Boolean,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -126,4 +127,71 @@ class DailyTask(Base):
 
     task: Mapped["Task"] = relationship(
         back_populates="daily_tasks",
+    )
+
+    work_sessions: Mapped[list["WorkSession"]] = relationship(
+        back_populates="daily_task",
+    )
+
+class WorkSession(Base):
+    __tablename__ = "work_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    daily_task_id: Mapped[int] = mapped_column(
+        ForeignKey("daily_tasks.id"),
+        nullable=False,
+    )
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    planned_duration_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1500,
+    )
+
+    actual_duration_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    session_state: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="running",
+    )
+
+    outcome: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
+
+    interrupted: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
+    note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
+
+    daily_task: Mapped["DailyTask"] = relationship(
+        back_populates="work_sessions",
     )
