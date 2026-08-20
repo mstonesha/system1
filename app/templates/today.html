@@ -25,6 +25,68 @@ Today | System 1
         </a>
     </nav>
 
+    {% if carry_forward_tasks %}
+
+        <section class="carry-forward">
+
+            <h3>Unfinished from previous day</h3>
+
+            <ul>
+
+                {% for daily_task in carry_forward_tasks %}
+
+                    <li>
+
+                        <strong>
+                            {{ daily_task.task.title }}
+                        </strong>
+
+                        <span>
+                            Previous commitment:
+                            {{ daily_task.planned_sessions or 0 }}
+                            sessions
+                        </span>
+
+                        <form
+                            method="post"
+                            action="/today/carry-forward"
+                            style="display: inline;"
+                        >
+
+                            <input
+                                type="hidden"
+                                name="task_id"
+                                value="{{ daily_task.task_id }}"
+                            >
+
+                            <input
+                                type="hidden"
+                                name="target_date"
+                                value="{{ selected_date }}"
+                            >
+
+                            <input
+                                type="hidden"
+                                name="planned_sessions"
+                                value="{{ daily_task.planned_sessions or 1 }}"
+                            >
+
+                            <button type="submit">
+                                Add to Today
+                            </button>
+
+                        </form>
+
+                    </li>
+
+                {% endfor %}
+
+            </ul>
+
+        </section>
+
+    {% endif %}
+
     <h3>Today</h3>
 
     {% if daily_tasks %}

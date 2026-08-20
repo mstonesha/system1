@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models import DailyTask, Task
 from app.services.today import (
     add_task_to_day,
+    get_carry_forward_candidates,
     get_daily_tasks_for_date,
     move_daily_task,
     remove_task_from_day,
@@ -114,6 +115,11 @@ def today_page(
         target_date=selected_date,
     )
 
+    carry_forward_tasks = get_carry_forward_candidates(
+        db=db,
+        target_date=selected_date,
+    )
+
     planned_task_ids = {
         daily_task.task_id
         for daily_task in daily_tasks
@@ -195,6 +201,7 @@ def today_page(
             "previous_date": previous_date,
             "next_date": next_date,
             "daily_tasks": daily_tasks,
+            "carry_forward_tasks": carry_forward_tasks,
             "active_tasks": available_tasks,
         },
     )
@@ -301,6 +308,42 @@ def move_daily_task_on_page(
 
     return RedirectResponse(
         url=f"/today/page?target_date={selected_date}",
+        status_code=303,
+    )
+
+@router.post("/carry-forward")
+def carry_forward_task(
+    task_id: int = Form(...),
+    target_date: date = Form(...),
+    planned_sessions: int | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    task = db.get(
+        Task,
+        task_id,
+    )
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found.",
+        )
+
+    try:
+        add_task_to_day(
+            db=db,
+            task=task,
+            target_date=target_date,
+            planned_sessions=planned_sessions,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    return RedirectResponse(
+        url=f"/today/page?target_date={target_date}",
         status_code=303,
     )
 

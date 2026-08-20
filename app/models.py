@@ -109,6 +109,11 @@ class DailyTask(Base):
         nullable=True,
     )
 
+    state: Mapped[str] = mapped_column(
+        String(30),
+        default="planned",
+    )
+
     sort_order: Mapped[int] = mapped_column(
         Integer,
         default=0,
