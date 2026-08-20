@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}
+Timer | System 1
+{% endblock %}
+
+{% block content %}
+
+<section class="timer-page">
+
+    <h2>Focus</h2>
+
+    {% if running_session %}
+
+        <div
+            id="running-session"
+            data-started-at="{{ running_session.started_at.isoformat() }}"
+            data-duration-seconds="{{ running_session.planned_duration_seconds }}"
+        >
+
+            <h3>
+                {{ running_session.daily_task.task.title }}
+            </h3>
+
+            <div id="timer-display">
+                --:--
+            </div>
+
+            <p>
+                Session length:
+                {{ running_session.planned_duration_seconds // 60 }}
+                minutes
+            </p>
+
+            <div
+                id="session-complete-message"
+                hidden
+            >
+
+                <h3>Session complete</h3>
+
+                <form
+                    method="post"
+                    action="/timer/commit"
+                >
+
+                    <input
+                        type="hidden"
+                        name="session_id"
+                        value="{{ running_session.id }}"
+                    >
+
+                    <p>
+                        <label>
+                            Result
+
+                            <select
+                                name="outcome"
+                                required
+                            >
+                                <option value="progress">
+                                    Progress
+                                </option>
+
+                                <option value="complete">
+                                    Complete
+                                </option>
+
+                                <option value="stuck">
+                                    Stuck
+                                </option>
+
+                                <option value="paused">
+                                    Paused
+                                </option>
+
+                                <option value="abandoned">
+                                    Abandoned
+                                </option>
+                            </select>
+                        </label>
+                    </p>
+
+                    <p>
+                        <label>
+                            <input
+                                type="checkbox"
+                                name="interrupted"
+                                value="true"
+                            >
+
+                            Interrupted
+                        </label>
+                    </p>
+
+                    <p>
+                        <label>
+                            Note
+                            <br>
+
+                            <textarea
+                                name="note"
+                                rows="3"
+                                maxlength="500"
+                                placeholder="Optional"
+                            ></textarea>
+                        </label>
+                    </p>
+
+                    <button type="submit">
+                        Commit Session
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    {% elif next_daily_task %}
+
+        <h3>
+            {{ next_daily_task.task.title }}
+        </h3>
+
+        <form
+            method="post"
+            action="/timer/start"
+        >
+
+            <label>
+                Session length
+
+                <input
+                    type="number"
+                    name="duration_minutes"
+                    min="1"
+                    value="25"
+                    required
+                >
+
+                minutes
+            </label>
+
+            <button type="submit">
+                Start Focus
+            </button>
+
+        </form>
+
+    {% else %}
+
+        <p>
+            There are no planned tasks for today.
+        </p>
+
+        <p>
+            <a href="/today/page">
+                Go to Today
+            </a>
+        </p>
+
+    {% endif %}
+
+</section>
+
+{% if running_session %}
+    <script src="/static/timer.js"></script>
+{% endif %}
+
+{% endblock %}

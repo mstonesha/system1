@@ -1,9 +1,19 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import DailyTask, WorkSession
+from app.services.tasks import cancel_task, complete_task
 from app.services.today import get_daily_tasks_for_date
+
+
+ALLOWED_OUTCOMES = {
+    "progress",
+    "complete",
+    "stuck",
+    "paused",
+    "abandoned",
+}
 
 
 def get_running_session(
@@ -66,6 +76,137 @@ def start_work_session(
     )
 
     db.add(work_session)
+    db.commit()
+    db.refresh(work_session)
+
+    return work_session
+
+
+def move_daily_task_to_bottom(
+    db: Session,
+    daily_task: DailyTask,
+) -> None:
+    daily_tasks = get_daily_tasks_for_date(
+        db=db,
+        target_date=daily_task.date,
+    )
+
+    reordered_tasks = [
+        item
+        for item in daily_tasks
+        if item.id != daily_task.id
+    ]
+
+    reordered_tasks.append(daily_task)
+
+    for index, item in enumerate(reordered_tasks):
+        item.sort_order = index
+
+
+def renumber_daily_queue(
+    db: Session,
+    target_date: date,
+) -> None:
+    daily_tasks = get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    )
+
+    for index, item in enumerate(daily_tasks):
+        item.sort_order = index
+
+
+def commit_work_session(
+    db: Session,
+    work_session: WorkSession,
+    outcome: str,
+    interrupted: bool = False,
+    note: str | None = None,
+) -> WorkSession:
+    outcome = outcome.strip().lower()
+
+    if outcome not in ALLOWED_OUTCOMES:
+        raise ValueError(
+            "Invalid session outcome."
+        )
+
+    if work_session.session_state != "running":
+        raise ValueError(
+            "This work session has already been committed."
+        )
+
+    daily_task = work_session.daily_task
+    task = daily_task.task
+
+    now = datetime.utcnow()
+
+    planned_end_at = (
+        work_session.started_at
+        + timedelta(
+            seconds=work_session.planned_duration_seconds
+        )
+    )
+
+    if now >= planned_end_at:
+        ended_at = planned_end_at
+        actual_duration_seconds = (
+            work_session.planned_duration_seconds
+        )
+    else:
+        ended_at = now
+        actual_duration_seconds = max(
+            0,
+            int(
+                (
+                    now - work_session.started_at
+                ).total_seconds()
+            ),
+        )
+
+    if outcome == "complete":
+        complete_task(
+            db=db,
+            task=task,
+        )
+
+        daily_task.state = "completed"
+
+    elif outcome == "abandoned":
+        cancel_task(
+            db=db,
+            task=task,
+        )
+
+        daily_task.state = "abandoned"
+
+    elif outcome in {"stuck", "paused"}:
+        move_daily_task_to_bottom(
+            db=db,
+            daily_task=daily_task,
+        )
+
+    work_session.ended_at = ended_at
+    work_session.actual_duration_seconds = (
+        actual_duration_seconds
+    )
+    work_session.session_state = "completed"
+    work_session.outcome = outcome
+    work_session.interrupted = interrupted
+
+    cleaned_note = (
+        note.strip()
+        if note is not None
+        else ""
+    )
+
+    work_session.note = cleaned_note or None
+
+    if outcome in {"complete", "abandoned"}:
+        renumber_daily_queue(
+            db=db,
+            target_date=daily_task.date,
+        )
+
     db.commit()
     db.refresh(work_session)
 
