@@ -8,7 +8,9 @@ from app.models import DailyTask, Task
 from app.services.today import (
     add_task_to_day,
     get_daily_tasks_for_date,
+    move_daily_task,
     remove_task_from_day,
+    update_planned_sessions,
 )
 
 from fastapi.responses import RedirectResponse
@@ -120,15 +122,70 @@ def today_page(
     active_tasks = (
         db.query(Task)
         .filter(Task.status == "active")
-        .order_by(Task.title)
         .all()
     )
 
-    available_tasks = [
-        task
+    available_task_ids = {
+        task.id
         for task in active_tasks
         if task.id not in planned_task_ids
+    }
+
+    def build_task_options(
+        task: Task,
+        depth: int = 0,
+    ) -> list[dict]:
+        options = []
+
+        if task.id in available_task_ids:
+            options.append({
+                "id": task.id,
+                "title": task.title,
+                "depth": depth,
+            })
+
+        active_children = [
+            child
+            for child in task.children
+            if child.status == "active"
+        ]
+
+        active_children.sort(
+            key=lambda child: (
+                child.sort_order,
+                child.created_at,
+            )
+        )
+
+        for child in active_children:
+            options.extend(
+                build_task_options(
+                    child,
+                    depth + 1,
+                )
+            )
+
+        return options
+
+    root_tasks = [
+        task
+        for task in active_tasks
+        if task.parent_task_id is None
     ]
+
+    root_tasks.sort(
+        key=lambda task: (
+            task.sort_order,
+            task.created_at,
+        )
+    )
+
+    available_tasks = []
+
+    for task in root_tasks:
+        available_tasks.extend(
+            build_task_options(task)
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -141,6 +198,7 @@ def today_page(
             "active_tasks": available_tasks,
         },
     )
+
 
 @router.post("/add-from-page")
 def add_to_today_from_page(
@@ -172,6 +230,77 @@ def add_to_today_from_page(
 
     return RedirectResponse(
         url=f"/today/page?target_date={target_date}",
+        status_code=303,
+    )
+
+@router.post("/{daily_task_id}/commit-sessions")
+def commit_planned_sessions(
+    daily_task_id: int,
+    planned_sessions: int = Form(...),
+    target_date: date = Form(...),
+    db: Session = Depends(get_db),
+):
+    daily_task = db.get(
+        DailyTask,
+        daily_task_id,
+    )
+
+    if daily_task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="DailyTask not found.",
+        )
+
+    try:
+        update_planned_sessions(
+            db=db,
+            daily_task=daily_task,
+            planned_sessions=planned_sessions,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return RedirectResponse(
+        url=f"/today/page?target_date={target_date}",
+        status_code=303,
+    )
+
+@router.post("/{daily_task_id}/move")
+def move_daily_task_on_page(
+    daily_task_id: int,
+    direction: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    daily_task = db.get(
+        DailyTask,
+        daily_task_id,
+    )
+
+    if daily_task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="DailyTask not found.",
+        )
+
+    selected_date = daily_task.date
+
+    try:
+        move_daily_task(
+            db=db,
+            daily_task=daily_task,
+            direction=direction,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    return RedirectResponse(
+        url=f"/today/page?target_date={selected_date}",
         status_code=303,
     )
 

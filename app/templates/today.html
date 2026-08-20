@@ -38,11 +38,64 @@ Today | System 1
                     {{ daily_task.task.title }}
                 </strong>
 
-                <span>
-                    Planned sessions:
-                    {{ daily_task.planned_sessions or 0 }}
-                </span>
+                <form
+                    method="post"
+                    action="/today/{{ daily_task.id }}/move"
+                    style="display: inline;"
+                >
+                    <input
+                        type="hidden"
+                        name="direction"
+                        value="up"
+                    >
 
+                    <button type="submit">
+                        ↑
+                    </button>
+                </form>
+
+                <form
+                    method="post"
+                    action="/today/{{ daily_task.id }}/move"
+                    style="display: inline;"
+                >
+                    <input
+                        type="hidden"
+                        name="direction"
+                        value="down"
+                    >
+
+                    <button type="submit">
+                        ↓
+                    </button>
+                </form>
+
+                <form
+                    method="post"
+                    action="/today/{{ daily_task.id }}/commit-sessions"
+                    style="display: inline;"
+                >
+                    <input
+                        type="hidden"
+                        name="target_date"
+                        value="{{ selected_date }}"
+                    >
+
+                    <label>
+                        Planned sessions:
+
+                        <input
+                            type="number"
+                            name="planned_sessions"
+                            min="1"
+                            value="{{ daily_task.planned_sessions or 1 }}"
+                        >
+                    </label>
+
+                    <button type="submit">
+                        Commit
+                    </button>
+                </form>
                 <form
                     method="post"
                     action="/today/{{ daily_task.id }}/remove-from-page"
@@ -89,7 +142,7 @@ Today | System 1
                 {% for task in active_tasks %}
 
                     <option value="{{ task.id }}">
-                        {{ task.title }}
+                        {{ "— " * task.depth }}{{ task.title }}
                     </option>
 
                 {% endfor %}

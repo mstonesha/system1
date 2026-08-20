@@ -75,3 +75,70 @@ def remove_task_from_day(
 ) -> None:
     db.delete(daily_task)
     db.commit()
+
+def update_planned_sessions(
+    db: Session,
+    daily_task: DailyTask,
+    planned_sessions: int,
+) -> DailyTask:
+    if planned_sessions < 1:
+        raise ValueError(
+            "Planned sessions must be at least 1."
+        )
+
+    daily_task.planned_sessions = planned_sessions
+
+    db.commit()
+    db.refresh(daily_task)
+
+    return daily_task
+
+def move_daily_task(
+    db: Session,
+    daily_task: DailyTask,
+    direction: str,
+) -> DailyTask:
+    if direction not in {"up", "down"}:
+        raise ValueError(
+            "Direction must be 'up' or 'down'."
+        )
+
+    daily_tasks = get_daily_tasks_for_date(
+        db=db,
+        target_date=daily_task.date,
+    )
+
+    current_index = next(
+        (
+            index
+            for index, item in enumerate(daily_tasks)
+            if item.id == daily_task.id
+        ),
+        None,
+    )
+
+    if current_index is None:
+        raise ValueError(
+            "Daily task could not be found in this day's plan."
+        )
+
+    if direction == "up":
+        target_index = current_index - 1
+    else:
+        target_index = current_index + 1
+
+    if target_index < 0 or target_index >= len(daily_tasks):
+        return daily_task
+
+    daily_tasks[current_index], daily_tasks[target_index] = (
+        daily_tasks[target_index],
+        daily_tasks[current_index],
+    )
+
+    for index, item in enumerate(daily_tasks):
+        item.sort_order = index
+
+    db.commit()
+    db.refresh(daily_task)
+
+    return daily_task
