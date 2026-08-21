@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}
+Review | System 1
+{% endblock %}
+
+{% block content %}
+
+<section>
+
+    <h2>Review</h2>
+
+    <h3>
+        {{ selected_date.strftime("%A %d %B %Y") }}
+    </h3>
+
+    <nav class="date-navigation">
+    <a href="/review/?target_date={{ previous_date }}">
+        ← Previous
+    </a>
+
+    <a href="/review/">
+        Today
+    </a>
+
+    <a href="/review/?target_date={{ next_date }}">
+        Next →
+    </a>
+</nav>
+
+<h3>Daily summary</h3>
+
+<dl class="daily-summary">
+
+    <div>
+        <dt>Focused time</dt>
+        <dd>
+            {{ summary.total_focus_minutes }} min
+        </dd>
+    </div>
+
+    <div>
+        <dt>Sessions completed</dt>
+        <dd>
+            {{ summary.session_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Interrupted</dt>
+        <dd>
+            {{ summary.interrupted_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Progress</dt>
+        <dd>
+            {{ summary.progress_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Complete</dt>
+        <dd>
+            {{ summary.completed_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Stuck</dt>
+        <dd>
+            {{ summary.stuck_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Paused</dt>
+        <dd>
+            {{ summary.paused_count }}
+        </dd>
+    </div>
+
+    <div>
+        <dt>Abandoned</dt>
+        <dd>
+            {{ summary.abandoned_count }}
+        </dd>
+    </div>
+
+</dl>
+
+<h3>Planned versus actual</h3>
+
+{% if task_performance %}
+
+    <table>
+
+        <thead>
+            <tr>
+                <th>Task</th>
+                <th>Committed sessions</th>
+                <th>Actual sessions</th>
+                <th>Focus time</th>
+                <th>Daily state</th>
+                <th>Latest outcome</th>
+                <th>Previous day</th>
+                <th>Next day</th>
+            </tr>
+        </thead>
+
+        <tbody>
+
+            {% for item in task_performance %}
+
+                <tr>
+                    <td>
+                        {{ item.task_title }}
+                    </td>
+
+                    <td>
+                        {{ item.planned_sessions }}
+                    </td>
+
+                    <td>
+                        {{ item.actual_sessions }}
+                    </td>
+
+                    <td>
+                        {{ item.actual_focus_minutes }} min
+                    </td>
+
+                    <td>
+                        {{ item.state }}
+                    </td>
+
+                    <td>
+                        {{ item.latest_outcome or "—" }}
+                    </td>
+
+                    <td>
+                        {% if item.present_previous_day %}
+                            Yes
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if item.present_next_day %}
+                            Yes
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+
+            {% endfor %}
+
+        </tbody>
+
+    </table>
+
+{% else %}
+
+    <p>
+        No tasks were planned for this date.
+    </p>
+
+{% endif %}
+
+
+<h3>Session history</h3>
+
+    {% if sessions %}
+
+        <table>
+
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Started</th>
+                    <th>Ended</th>
+                    <th>Planned</th>
+                    <th>Actual</th>
+                    <th>Outcome</th>
+                    <th>Interrupted</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for session in sessions %}
+
+                    <tr>
+                        <td>
+                            {{ session.daily_task.task.title }}
+                        </td>
+
+                        <td>
+                            {{ session.started_at.strftime("%H:%M") }}
+                        </td>
+
+                        <td>
+                            {% if session.ended_at %}
+                                {{ session.ended_at.strftime("%H:%M") }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ session.planned_duration_seconds // 60 }}
+                            min
+                        </td>
+
+                        <td>
+                            {% if session.actual_duration_seconds is not none %}
+                                {{ session.actual_duration_seconds // 60 }}
+                                min
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ session.outcome or "—" }}
+                        </td>
+
+                        <td>
+                            {% if session.interrupted %}
+                                Yes
+                            {% else %}
+                                No
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ session.note or "" }}
+                        </td>
+                    </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    {% else %}
+
+        <p>
+            No completed work sessions for this date.
+        </p>
+
+    {% endif %}
+
+</section>
+
+{% endblock %}
