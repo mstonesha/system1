@@ -120,9 +120,19 @@ def today_page(
         target_date=selected_date,
     )
 
-    planned_task_ids = {
+    selected_task_ids = {
         daily_task.task_id
         for daily_task in daily_tasks
+    }
+
+    planned_by_task_id = {
+        daily_task.task_id: daily_task
+        for daily_task in daily_tasks
+    }
+
+    carry_forward_by_task_id = {
+        daily_task.task_id: daily_task
+        for daily_task in carry_forward_tasks
     }
 
     active_tasks = (
@@ -130,48 +140,6 @@ def today_page(
         .filter(Task.status == "active")
         .all()
     )
-
-    available_task_ids = {
-        task.id
-        for task in active_tasks
-        if task.id not in planned_task_ids
-    }
-
-    def build_task_options(
-        task: Task,
-        depth: int = 0,
-    ) -> list[dict]:
-        options = []
-
-        if task.id in available_task_ids:
-            options.append({
-                "id": task.id,
-                "title": task.title,
-                "depth": depth,
-            })
-
-        active_children = [
-            child
-            for child in task.children
-            if child.status == "active"
-        ]
-
-        active_children.sort(
-            key=lambda child: (
-                child.sort_order,
-                child.created_at,
-            )
-        )
-
-        for child in active_children:
-            options.extend(
-                build_task_options(
-                    child,
-                    depth + 1,
-                )
-            )
-
-        return options
 
     root_tasks = [
         task
@@ -186,12 +154,32 @@ def today_page(
         )
     )
 
-    available_tasks = []
+    def build_task_tree(task: Task) -> dict:
+        active_children = [
+            child
+            for child in task.children
+            if child.status == "active"
+        ]
 
-    for task in root_tasks:
-        available_tasks.extend(
-            build_task_options(task)
+        active_children.sort(
+            key=lambda child: (
+                child.sort_order,
+                child.created_at,
+            )
         )
+
+        return {
+            "task": task,
+            "children": [
+                build_task_tree(child)
+                for child in active_children
+            ],
+        }
+
+    task_tree = [
+        build_task_tree(task)
+        for task in root_tasks
+    ]
 
     return templates.TemplateResponse(
         request=request,
@@ -201,8 +189,11 @@ def today_page(
             "previous_date": previous_date,
             "next_date": next_date,
             "daily_tasks": daily_tasks,
-            "carry_forward_tasks": carry_forward_tasks,
-            "active_tasks": available_tasks,
+            "task_tree": task_tree,
+            "selected_task_ids": selected_task_ids,
+            "planned_by_task_id": planned_by_task_id,
+            "carry_forward_by_task_id":
+                carry_forward_by_task_id,
         },
     )
 

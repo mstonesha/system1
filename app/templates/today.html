@@ -1,233 +1,387 @@
 {% extends "base.html" %}
 
 {% block title %}
-Today | System 1
+Today's Tasks | Akrasia_Zero
 {% endblock %}
 
-{% block content %}
+{% block today_nav_class %}active{% endblock %}
 
-<section>
+{% macro render_task_node(node) %}
 
-    <h2>
-        {{ selected_date.strftime("%A %d %B %Y") }}
-    </h2>
-    <nav class="date-navigation">
-        <a href="/today/page?target_date={{ previous_date }}">
-            ← Previous
-        </a>
+    {% set task = node.task %}
+    {% set is_selected = task.id in selected_task_ids %}
+    {% set carry_forward = carry_forward_by_task_id.get(task.id) %}
 
-        <a href="/today/page">
-            Today
-        </a>
+    <li
+        class="
+            today-tree-item
+            {% if is_selected %}
+                today-tree-item-selected
+            {% elif carry_forward %}
+                today-tree-item-carry
+            {% endif %}
+        "
+    >
 
-        <a href="/today/page?target_date={{ next_date }}">
-            Next →
-        </a>
-    </nav>
+        <div class="today-tree-row">
 
-    {% if carry_forward_tasks %}
+            {% if is_selected %}
 
-        <section class="carry-forward">
+                {% set daily_task = planned_by_task_id.get(task.id) %}
 
-            <h3>Unfinished from previous day</h3>
+                <form
+                    method="post"
+                    action="/today/{{ daily_task.id }}/remove-from-page"
+                    class="today-checkbox-form"
+                >
 
-            <ul>
+                    <input
+                        type="hidden"
+                        name="target_date"
+                        value="{{ selected_date }}"
+                    >
 
-                {% for daily_task in carry_forward_tasks %}
+                    <input
+                        class="today-selector-checkbox"
+                        type="checkbox"
+                        checked
+                        aria-label="Remove {{ task.title }} from this day"
+                        onchange="this.form.submit()"
+                    >
 
-                    <li>
+                </form>
 
-                        <strong>
-                            {{ daily_task.task.title }}
-                        </strong>
+            {% else %}
 
-                        <span>
-                            Previous commitment:
-                            {{ daily_task.planned_sessions or 0 }}
-                            sessions
-                        </span>
+                <form
+                    method="post"
+                    action="/today/add-from-page"
+                    class="today-checkbox-form"
+                >
 
-                        <form
-                            method="post"
-                            action="/today/carry-forward"
-                            style="display: inline;"
-                        >
+                    <input
+                        type="hidden"
+                        name="task_id"
+                        value="{{ task.id }}"
+                    >
 
-                            <input
-                                type="hidden"
-                                name="task_id"
-                                value="{{ daily_task.task_id }}"
-                            >
+                    <input
+                        type="hidden"
+                        name="target_date"
+                        value="{{ selected_date }}"
+                    >
 
-                            <input
-                                type="hidden"
-                                name="target_date"
-                                value="{{ selected_date }}"
-                            >
+                    <input
+                        type="hidden"
+                        name="planned_sessions"
+                        value="
+                            {% if carry_forward %}
+                                {{ carry_forward.planned_sessions or 1 }}
+                            {% else %}
+                                1
+                            {% endif %}
+                        "
+                    >
 
-                            <input
-                                type="hidden"
-                                name="planned_sessions"
-                                value="{{ daily_task.planned_sessions or 1 }}"
-                            >
+                    <input
+                        class="today-selector-checkbox"
+                        type="checkbox"
+                        aria-label="Add {{ task.title }} to this day"
+                        onchange="
+                            if (this.checked) {
+                                this.form.submit();
+                            }
+                        "
+                    >
 
-                            <button type="submit">
-                                Add to Today
-                            </button>
+                </form>
 
-                        </form>
+            {% endif %}
 
-                    </li>
+
+            <span class="today-tree-title">
+                {{ task.title }}
+            </span>
+
+
+            {% if carry_forward and not is_selected %}
+
+                <span
+                    class="carry-forward-marker"
+                    title="Unfinished from the previous day"
+                >
+                    ↺ Yesterday ·
+                    {{ carry_forward.planned_sessions or 1 }}
+                    {% if (carry_forward.planned_sessions or 1) == 1 %}
+                        session
+                    {% else %}
+                        sessions
+                    {% endif %}
+                </span>
+
+            {% endif %}
+
+        </div>
+
+
+        {% if node.children %}
+
+            <ul class="today-tree-children">
+
+                {% for child_node in node.children %}
+
+                    {{ render_task_node(child_node) }}
 
                 {% endfor %}
 
             </ul>
 
-        </section>
+        {% endif %}
 
-    {% endif %}
+    </li>
 
-    <h3>Today</h3>
-
-    {% if daily_tasks %}
-
-    <ul class="daily-task-list">
-
-        {% for daily_task in daily_tasks %}
-
-            <li>
-                <strong>
-                    {{ daily_task.task.title }}
-                </strong>
-
-                <form
-                    method="post"
-                    action="/today/{{ daily_task.id }}/move"
-                    style="display: inline;"
-                >
-                    <input
-                        type="hidden"
-                        name="direction"
-                        value="up"
-                    >
-
-                    <button type="submit">
-                        ↑
-                    </button>
-                </form>
-
-                <form
-                    method="post"
-                    action="/today/{{ daily_task.id }}/move"
-                    style="display: inline;"
-                >
-                    <input
-                        type="hidden"
-                        name="direction"
-                        value="down"
-                    >
-
-                    <button type="submit">
-                        ↓
-                    </button>
-                </form>
-
-                <form
-                    method="post"
-                    action="/today/{{ daily_task.id }}/commit-sessions"
-                    style="display: inline;"
-                >
-                    <input
-                        type="hidden"
-                        name="target_date"
-                        value="{{ selected_date }}"
-                    >
-
-                    <label>
-                        Planned sessions:
-
-                        <input
-                            type="number"
-                            name="planned_sessions"
-                            min="1"
-                            value="{{ daily_task.planned_sessions or 1 }}"
-                        >
-                    </label>
-
-                    <button type="submit">
-                        Commit
-                    </button>
-                </form>
-                <form
-                    method="post"
-                    action="/today/{{ daily_task.id }}/remove-from-page"
-                    style="display: inline;"
-                >
-                    <input
-                        type="hidden"
-                        name="target_date"
-                        value="{{ selected_date }}"
-                    >
-
-                    <button type="submit">
-                        Remove
-                    </button>
-                </form>
-            </li>
-
-        {% endfor %}
-
-    </ul>
-
-{% else %}
-
-    <p>No tasks planned for this day.</p>
-
-{% endif %}
+{% endmacro %}
 
 
-    <h3>Add task</h3>
+{% block content %}
 
-    <form method="post" action="/today/add-from-page">
+<section class="today-page">
 
-        <input
-            type="hidden"
-            name="target_date"
-            value="{{ selected_date }}"
+    <header class="today-page-header">
+
+        <div>
+
+            <h1 class="today-heading">
+                Today's Tasks
+            </h1>
+
+            <div class="today-selected-date">
+                {{ selected_date.strftime("%A %d %B %Y") }}
+            </div>
+
+        </div>
+
+
+        <nav
+            class="date-navigation"
+            aria-label="Date navigation"
         >
 
-        <label>
-            Task
-
-            <select name="task_id" required>
-
-                {% for task in active_tasks %}
-
-                    <option value="{{ task.id }}">
-                        {{ "— " * task.depth }}{{ task.title }}
-                    </option>
-
-                {% endfor %}
-
-            </select>
-        </label>
-
-        <label>
-            Planned sessions
-
-            <input
-                type="number"
-                name="planned_sessions"
-                min="1"
-                value="1"
+            <a
+                href="/today/page?target_date={{ previous_date }}"
+                class="date-nav-link"
             >
-        </label>
+                ← Previous
+            </a>
 
-        <button type="submit">
-            Add to day
-        </button>
+            <a
+                href="/today/page"
+                class="date-nav-link"
+            >
+                Today
+            </a>
 
-    </form>
+            <a
+                href="/today/page?target_date={{ next_date }}"
+                class="date-nav-link"
+            >
+                Next →
+            </a>
+
+        </nav>
+
+    </header>
+
+
+    <div class="today-workspace">
+
+        <section
+            class="today-pane today-source-pane"
+            aria-labelledby="source-tasks-heading"
+        >
+
+            <header class="today-pane-header">
+
+                <h2 id="source-tasks-heading">
+                    Task List
+                </h2>
+
+                <span class="today-pane-note">
+                    Select tasks for this day
+                </span>
+
+            </header>
+
+
+            {% if task_tree %}
+
+                <ul class="today-task-tree">
+
+                    {% for node in task_tree %}
+
+                        {{ render_task_node(node) }}
+
+                    {% endfor %}
+
+                </ul>
+
+            {% else %}
+
+                <p class="today-empty">
+                    No active tasks.
+                </p>
+
+            {% endif %}
+
+        </section>
+
+
+        <section
+            class="today-pane today-queue-pane"
+            aria-labelledby="today-queue-heading"
+        >
+
+            <header class="today-pane-header">
+
+                <h2 id="today-queue-heading">
+                    Today
+                </h2>
+
+                <span class="today-pane-note">
+                    Execution order
+                </span>
+
+            </header>
+
+
+            {% if daily_tasks %}
+
+                <ol class="today-queue">
+
+                    {% for daily_task in daily_tasks %}
+
+                        <li class="today-queue-item">
+
+                            <div class="queue-order-controls">
+
+                                <form
+                                    method="post"
+                                    action="/today/{{ daily_task.id }}/move"
+                                >
+
+                                    <input
+                                        type="hidden"
+                                        name="direction"
+                                        value="up"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="queue-arrow"
+                                        aria-label="Move {{ daily_task.task.title }} up"
+                                        title="Move up"
+                                        {% if loop.first %}disabled{% endif %}
+                                    >
+                                        ↑
+                                    </button>
+
+                                </form>
+
+
+                                <form
+                                    method="post"
+                                    action="/today/{{ daily_task.id }}/move"
+                                >
+
+                                    <input
+                                        type="hidden"
+                                        name="direction"
+                                        value="down"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="queue-arrow"
+                                        aria-label="Move {{ daily_task.task.title }} down"
+                                        title="Move down"
+                                        {% if loop.last %}disabled{% endif %}
+                                    >
+                                        ↓
+                                    </button>
+
+                                </form>
+
+                            </div>
+
+
+                            <div class="queue-task-title">
+                                {{ daily_task.task.title }}
+                            </div>
+
+
+                            <form
+                                method="post"
+                                action="/today/{{ daily_task.id }}/commit-sessions"
+                                class="queue-session-form"
+                            >
+
+                                <input
+                                    type="hidden"
+                                    name="target_date"
+                                    value="{{ selected_date }}"
+                                >
+
+                                <label
+                                    for="sessions-{{ daily_task.id }}"
+                                    class="session-label"
+                                >
+                                    Sessions
+                                </label>
+
+                                <input
+                                    id="sessions-{{ daily_task.id }}"
+                                    class="session-count-input"
+                                    type="number"
+                                    name="planned_sessions"
+                                    min="1"
+                                    value="{{ daily_task.planned_sessions or 1 }}"
+                                    required
+                                >
+
+                                <button
+                                    type="submit"
+                                    class="queue-commit"
+                                >
+                                    Commit
+                                </button>
+
+                            </form>
+
+                        </li>
+
+                    {% endfor %}
+
+                </ol>
+
+            {% else %}
+
+                <div class="today-empty-state">
+
+                    <p>
+                        Nothing committed to this day.
+                    </p>
+
+                    <p class="muted">
+                        Select tasks from the Task List.
+                    </p>
+
+                </div>
+
+            {% endif %}
+
+        </section>
+
+    </div>
 
 </section>
 
