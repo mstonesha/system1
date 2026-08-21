@@ -4,6 +4,9 @@ from app.models import Task
 from app.time import utc_now
 
 
+MAX_TASK_TITLE_LENGTH = 200
+
+
 def get_root_tasks(db: Session) -> list[Task]:
     return (
         db.query(Task)
@@ -24,13 +27,29 @@ def has_active_descendants(task: Task) -> bool:
     return False
 
 
+def normalize_task_title(title: str) -> str:
+    cleaned = title.strip()
+
+    if not cleaned:
+        raise ValueError(
+            "Task title cannot be empty."
+        )
+
+    if len(cleaned) > MAX_TASK_TITLE_LENGTH:
+        raise ValueError(
+            "Task title cannot exceed 200 characters."
+        )
+
+    return cleaned
+
+
 def create_task(
     db: Session,
     title: str,
     parent_task_id: int | None = None,
 ) -> Task:
     task = Task(
-        title=title.strip(),
+        title=normalize_task_title(title),
         parent_task_id=parent_task_id,
     )
 
@@ -98,7 +117,7 @@ def update_task_title(
     task: Task,
     title: str,
 ) -> Task:
-    task.title = title.strip()
+    task.title = normalize_task_title(title)
 
     db.commit()
     db.refresh(task)

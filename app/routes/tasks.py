@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -68,10 +68,16 @@ def create_task_api(
     title: str,
     db: Session = Depends(get_db),
 ):
-    return create_task_service(
-        db=db,
-        title=title,
-    )
+    try:
+        return create_task_service(
+            db=db,
+            title=title,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
 
 
 @router.get("/task-tree")
@@ -94,10 +100,16 @@ def create_task_from_form(
     show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
-    create_task_service(
-        db=db,
-        title=title,
-    )
+    try:
+        create_task_service(
+            db=db,
+            title=title,
+        )
+    except ValueError as exc:
+        return HTMLResponse(
+            content=str(exc),
+            status_code=409,
+        )
 
     return render_task_tree(
         request=request,
@@ -128,11 +140,17 @@ def create_subtask(
             status_code=409,
         )
 
-    create_task_service(
-        db=db,
-        title=title,
-        parent_task_id=parent_id,
-    )
+    try:
+        create_task_service(
+            db=db,
+            title=title,
+            parent_task_id=parent_id,
+        )
+    except ValueError as exc:
+        return HTMLResponse(
+            content=str(exc),
+            status_code=409,
+        )
 
     return render_task_tree(
         request=request,
@@ -249,11 +267,17 @@ def edit_task(
             status_code=409,
         )
 
-    update_task_title(
-        db=db,
-        task=task,
-        title=title,
-    )
+    try:
+        update_task_title(
+            db=db,
+            task=task,
+            title=title,
+        )
+    except ValueError as exc:
+        return HTMLResponse(
+            content=str(exc),
+            status_code=409,
+        )
 
     return render_task_tree(
         request=request,

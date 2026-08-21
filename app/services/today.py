@@ -1,8 +1,10 @@
 from datetime import date, timedelta
 
+from psycopg.errors import UniqueViolation
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import DailyTask, Task
+from app.models import DailyTask, Task, WorkSession
 
 
 def get_daily_tasks_for_date(
@@ -28,24 +30,47 @@ def get_daily_tasks_for_date(
     )
 
 
+def validate_planned_sessions(
+    planned_sessions: int | None,
+) -> None:
+    if planned_sessions is not None and planned_sessions < 1:
+        raise ValueError(
+            "Planned sessions must be at least 1."
+        )
+
+
+def _find_daily_task(
+    db: Session,
+    task_id: int,
+    target_date: date,
+) -> DailyTask | None:
+    return (
+        db.query(DailyTask)
+        .filter(
+            DailyTask.task_id == task_id,
+            DailyTask.date == target_date,
+        )
+        .first()
+    )
+
+
 def add_task_to_day(
     db: Session,
     task: Task,
     target_date: date,
     planned_sessions: int | None = None,
 ) -> DailyTask:
+    validate_planned_sessions(planned_sessions)
+
     if task.status != "active":
         raise ValueError(
             "Only active tasks can be added to a day."
         )
 
-    existing = (
-        db.query(DailyTask)
-        .filter(
-            DailyTask.task_id == task.id,
-            DailyTask.date == target_date,
-        )
-        .first()
+    existing = _find_daily_task(
+        db=db,
+        task_id=task.id,
+        target_date=target_date,
     )
 
     highest_sort_order = (
@@ -93,8 +118,19 @@ def add_task_to_day(
     )
 
     db.add(daily_task)
-    db.commit()
-    db.refresh(daily_task)
+
+    try:
+        db.commit()
+        db.refresh(daily_task)
+    except IntegrityError as exc:
+        db.rollback()
+
+        if isinstance(exc.orig, UniqueViolation):
+            raise ValueError(
+                "This task is already on the selected day."
+            ) from exc
+
+        raise
 
     return daily_task
 
@@ -103,6 +139,20 @@ def remove_task_from_day(
     db: Session,
     daily_task: DailyTask,
 ) -> DailyTask:
+    running_session = (
+        db.query(WorkSession)
+        .filter(
+            WorkSession.daily_task_id == daily_task.id,
+            WorkSession.session_state == "running",
+        )
+        .first()
+    )
+
+    if running_session is not None:
+        raise ValueError(
+            "Cannot remove a task from the day while a work session is running."
+        )
+
     daily_task.state = "removed"
 
     remaining_tasks = (
@@ -132,10 +182,7 @@ def update_planned_sessions(
     daily_task: DailyTask,
     planned_sessions: int,
 ) -> DailyTask:
-    if planned_sessions < 1:
-        raise ValueError(
-            "Planned sessions must be at least 1."
-        )
+    validate_planned_sessions(planned_sessions)
 
     daily_task.planned_sessions = planned_sessions
 

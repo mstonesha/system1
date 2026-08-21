@@ -6,4 +6,5 @@ psycopg[binary]
 alembic
 python-multipart
 pytest
+httpx
 tzdata

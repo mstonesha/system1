@@ -90,10 +90,16 @@ def remove_from_today(
             detail="DailyTask not found.",
         )
 
-    remove_task_from_day(
-        db=db,
-        daily_task=daily_task,
-    )
+    try:
+        remove_task_from_day(
+            db=db,
+            daily_task=daily_task,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
 
     return {
         "deleted": True,
@@ -258,7 +264,7 @@ def commit_planned_sessions(
         )
     except ValueError as exc:
         raise HTTPException(
-            status_code=400,
+            status_code=409,
             detail=str(exc),
         )
 
@@ -294,7 +300,7 @@ def move_daily_task_on_page(
         )
     except ValueError as exc:
         raise HTTPException(
-            status_code=400,
+            status_code=409,
             detail=str(exc),
         )
 
@@ -356,10 +362,16 @@ def remove_from_today_page(
             detail="DailyTask not found.",
         )
 
-    remove_task_from_day(
-        db=db,
-        daily_task=daily_task,
-    )
+    try:
+        remove_task_from_day(
+            db=db,
+            daily_task=daily_task,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
 
     return RedirectResponse(
         url=f"/today/page?target_date={target_date}",
