@@ -1,0 +1,191 @@
+import os
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine, make_url
+
+VERIFY_DATABASE_NAME = "system1_alembic_verify"
+
+
+def _server_url():
+    return make_url(os.environ["DATABASE_URL"])
+
+
+def _verify_url():
+    return _server_url().set(database=VERIFY_DATABASE_NAME)
+
+
+def _admin_engine() -> Engine:
+    return create_engine(
+        _server_url().set(database="postgres"),
+        isolation_level="AUTOCOMMIT",
+    )
+
+
+def _drop_verify_database(admin: Engine) -> None:
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = :name "
+                "AND pid <> pg_backend_pid()"
+            ),
+            {"name": VERIFY_DATABASE_NAME},
+        )
+        connection.execute(
+            text(
+                f'DROP DATABASE IF EXISTS "{VERIFY_DATABASE_NAME}"'
+            )
+        )
+
+
+def _create_verify_database(admin: Engine) -> None:
+    with admin.connect() as connection:
+        connection.execute(
+            text(
+                f'CREATE DATABASE "{VERIFY_DATABASE_NAME}"'
+            )
+        )
+
+
+def _run_alembic(connection, revision: str, *, downgrade: bool = False) -> None:
+    config = Config("alembic.ini")
+    config.attributes["connection"] = connection
+
+    if downgrade:
+        command.downgrade(config, revision)
+    else:
+        command.upgrade(config, revision)
+
+
+def _schema_facts(connection) -> dict:
+    tables = {
+        row[0]
+        for row in connection.execute(
+            text(
+                "SELECT tablename "
+                "FROM pg_tables "
+                "WHERE schemaname = 'public'"
+            )
+        )
+    }
+    columns = {
+        (row[0], row[1]): row[2]
+        for row in connection.execute(
+            text(
+                "SELECT table_name, column_name, data_type "
+                "FROM information_schema.columns "
+                "WHERE table_schema = 'public'"
+            )
+        )
+    }
+    constraints = {
+        row[0]: row[1]
+        for row in connection.execute(
+            text(
+                "SELECT con.conname, pg_get_constraintdef(con.oid) "
+                "FROM pg_constraint con "
+                "JOIN pg_class rel ON rel.oid = con.conrelid "
+                "JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace "
+                "WHERE nsp.nspname = 'public' "
+                "AND rel.relname IN "
+                "('tasks', 'daily_tasks', 'work_sessions')"
+            )
+        )
+    }
+    indexes = {
+        row[0]: row[1]
+        for row in connection.execute(
+            text(
+                "SELECT indexname, indexdef "
+                "FROM pg_indexes "
+                "WHERE schemaname = 'public'"
+            )
+        )
+    }
+    alembic_head = connection.execute(
+        text("SELECT version_num FROM alembic_version")
+    ).scalar_one()
+
+    return {
+        "tables": tables,
+        "columns": columns,
+        "constraints": constraints,
+        "indexes": indexes,
+        "alembic_head": alembic_head,
+    }
+
+
+def _assert_current_schema(facts: dict) -> None:
+    assert facts["alembic_head"] == "f1a9b3c4d5e6"
+    assert facts["tables"] >= {
+        "tasks",
+        "daily_tasks",
+        "work_sessions",
+        "alembic_version",
+    }
+
+    for table_name, column_name in (
+        ("tasks", "created_at"),
+        ("tasks", "completed_at"),
+        ("daily_tasks", "created_at"),
+        ("work_sessions", "started_at"),
+        ("work_sessions", "ended_at"),
+        ("work_sessions", "created_at"),
+    ):
+        assert (
+            facts["columns"][(table_name, column_name)]
+            == "timestamp with time zone"
+        )
+
+    assert facts["columns"][("tasks", "due_date")] == "date"
+    assert facts["columns"][("daily_tasks", "date")] == "date"
+
+    assert "FOREIGN KEY (parent_task_id) REFERENCES tasks(id)" in facts[
+        "constraints"
+    ]["tasks_parent_task_id_fkey"]
+    assert "FOREIGN KEY (task_id) REFERENCES tasks(id)" in facts[
+        "constraints"
+    ]["daily_tasks_task_id_fkey"]
+    assert (
+        "FOREIGN KEY (daily_task_id) REFERENCES daily_tasks(id)"
+        in facts["constraints"]["work_sessions_daily_task_id_fkey"]
+    )
+    assert (
+        facts["constraints"]["uq_daily_task_task_date"]
+        == "UNIQUE (task_id, date)"
+    )
+
+    running_index = facts["indexes"]["uq_work_sessions_one_running"]
+    assert "UNIQUE INDEX" in running_index
+    assert "session_state" in running_index
+    assert "WHERE" in running_index
+    assert "running" in running_index
+
+
+def test_alembic_upgrade_head_on_empty_database():
+    admin = _admin_engine()
+
+    try:
+        _drop_verify_database(admin)
+        _create_verify_database(admin)
+
+        verify_engine = create_engine(_verify_url())
+        try:
+            with verify_engine.connect() as connection:
+                _run_alembic(connection, "head")
+                connection.commit()
+                _assert_current_schema(_schema_facts(connection))
+
+                _run_alembic(connection, "base", downgrade=True)
+                connection.commit()
+                _run_alembic(connection, "head")
+                connection.commit()
+                _assert_current_schema(_schema_facts(connection))
+        finally:
+            verify_engine.dispose()
+    finally:
+        _drop_verify_database(admin)
+        admin.dispose()

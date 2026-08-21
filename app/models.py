@@ -4,15 +4,18 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     Boolean,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.time import utc_now
 
 
 class Task(Base):
@@ -48,7 +51,7 @@ class Task(Base):
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -63,8 +66,8 @@ class Task(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
+        DateTime(timezone=True),
+        default=utc_now,
     )
 
     parent: Mapped["Task | None"] = relationship(
@@ -121,8 +124,8 @@ class DailyTask(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
+        DateTime(timezone=True),
+        default=utc_now,
     )
 
     task: Mapped["Task"] = relationship(
@@ -136,6 +139,17 @@ class DailyTask(Base):
 class WorkSession(Base):
     __tablename__ = "work_sessions"
 
+    __table_args__ = (
+        Index(
+            "uq_work_sessions_one_running",
+            "session_state",
+            unique=True,
+            postgresql_where=text(
+                "session_state = 'running'"
+            ),
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
 
     daily_task_id: Mapped[int] = mapped_column(
@@ -144,13 +158,13 @@ class WorkSession(Base):
     )
 
     started_at: Mapped[datetime] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
 
     ended_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -188,8 +202,8 @@ class WorkSession(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
+        DateTime(timezone=True),
+        default=utc_now,
     )
 
     daily_task: Mapped["DailyTask"] = relationship(

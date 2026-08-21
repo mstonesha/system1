@@ -9,11 +9,19 @@ def get_daily_tasks_for_date(
     db: Session,
     target_date: date,
 ) -> list[DailyTask]:
+    """Return the executable queue for a date.
+
+    A DailyTask is executable only when it is still planned and its
+    underlying Task is active. Historical DailyTask rows are left in
+    place; they simply drop out of this queue.
+    """
     return (
         db.query(DailyTask)
+        .join(DailyTask.task)
         .filter(
             DailyTask.date == target_date,
             DailyTask.state == "planned",
+            Task.status == "active",
         )
         .order_by(DailyTask.sort_order, DailyTask.created_at)
         .all()

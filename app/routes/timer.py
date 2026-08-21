@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -14,6 +14,7 @@ from app.services.sessions import (
     get_running_session,
     start_work_session,
 )
+from app.time import today, utc_now
 
 
 router = APIRouter(
@@ -34,7 +35,7 @@ def timer_page(
     break_until: int | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = date.today()
+    selected_date = today()
 
     running_session = get_running_session(db)
 
@@ -42,7 +43,7 @@ def timer_page(
 
     if running_session is None and break_until is not None:
         now_timestamp = int(
-            datetime.now(timezone.utc).timestamp()
+            utc_now().timestamp()
         )
 
         if break_until > now_timestamp:
@@ -106,7 +107,7 @@ def start_timer(
     duration_minutes: int = Form(25),
     db: Session = Depends(get_db),
 ):
-    selected_date = date.today()
+    selected_date = today()
 
     try:
         start_work_session(
@@ -193,7 +194,7 @@ def commit_timer_session(
         )
 
     break_ends_at = (
-        datetime.now(timezone.utc)
+        utc_now()
         + timedelta(
             minutes=BREAK_DURATION_MINUTES
         )

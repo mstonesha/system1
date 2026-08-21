@@ -27,7 +27,7 @@ if (sessionElement && timerDisplay) {
 
     const startedAt =
         new Date(
-            sessionElement.dataset.startedAt + "Z"
+            sessionElement.dataset.startedAt
         );
 
     const durationSeconds =
@@ -44,7 +44,7 @@ if (sessionElement && timerDisplay) {
 
     const recordedEndTime =
         endedAtValue
-            ? new Date(endedAtValue + "Z").getTime()
+            ? new Date(endedAtValue).getTime()
             : null;
 
     let timerInterval = null;

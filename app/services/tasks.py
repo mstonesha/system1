@@ -1,8 +1,7 @@
-from datetime import datetime
-
 from sqlalchemy.orm import Session
 
 from app.models import Task
+from app.time import utc_now
 
 
 def get_root_tasks(db: Session) -> list[Task]:
@@ -42,17 +41,26 @@ def create_task(
     return task
 
 
-def complete_task(
-    db: Session,
-    task: Task,
-) -> Task:
+def mark_task_completed(task: Task) -> None:
     if has_active_descendants(task):
         raise ValueError(
             "Cannot complete this task while it has active subtasks."
         )
 
     task.status = "completed"
-    task.completed_at = datetime.utcnow()
+    task.completed_at = utc_now()
+
+
+def mark_task_cancelled(task: Task) -> None:
+    task.status = "cancelled"
+    task.completed_at = None
+
+
+def complete_task(
+    db: Session,
+    task: Task,
+) -> Task:
+    mark_task_completed(task)
 
     db.commit()
     db.refresh(task)
@@ -64,8 +72,7 @@ def cancel_task(
     db: Session,
     task: Task,
 ) -> Task:
-    task.status = "cancelled"
-    task.completed_at = None
+    mark_task_cancelled(task)
 
     db.commit()
     db.refresh(task)

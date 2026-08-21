@@ -8,6 +8,7 @@ from app.services.sessions import (
     get_running_session,
     start_work_session,
 )
+from app.time import today
 
 
 router = APIRouter(
@@ -29,7 +30,7 @@ def start_session(
     duration_minutes: int = 25,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     try:
         return start_work_session(

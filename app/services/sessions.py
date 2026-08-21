@@ -1,10 +1,13 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
+from psycopg.errors import UniqueViolation
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import DailyTask, WorkSession
-from app.services.tasks import cancel_task, complete_task
+from app.services.tasks import mark_task_cancelled, mark_task_completed
 from app.services.today import get_daily_tasks_for_date
+from app.time import utc_now
 
 
 ALLOWED_OUTCOMES = {
@@ -76,8 +79,19 @@ def start_work_session(
     )
 
     db.add(work_session)
-    db.commit()
-    db.refresh(work_session)
+
+    try:
+        db.commit()
+        db.refresh(work_session)
+    except IntegrityError as exc:
+        db.rollback()
+
+        if isinstance(exc.orig, UniqueViolation):
+            raise ValueError(
+                "A work session is already running."
+            ) from exc
+
+        raise
 
     return work_session
 
@@ -128,7 +142,7 @@ def end_work_session_early(
     if work_session.ended_at is not None:
         return work_session
 
-    now = datetime.utcnow()
+    now = utc_now()
 
     planned_end_at = (
         work_session.started_at
@@ -191,7 +205,7 @@ def commit_work_session(
     recorded_end_at = (
         work_session.ended_at
         if work_session.ended_at is not None
-        else datetime.utcnow()
+        else utc_now()
     )
 
     ended_at = min(
@@ -209,44 +223,40 @@ def commit_work_session(
         ),
     )
 
-    if outcome == "complete":
-        complete_task(
-            db=db,
-            task=task,
+    try:
+        if outcome == "complete":
+            mark_task_completed(task)
+            daily_task.state = "completed"
+
+        elif outcome == "abandoned":
+            mark_task_cancelled(task)
+            daily_task.state = "abandoned"
+
+        elif outcome in {"stuck", "paused"}:
+            move_daily_task_to_bottom(
+                db=db,
+                daily_task=daily_task,
+            )
+
+        work_session.ended_at = ended_at
+        work_session.actual_duration_seconds = (
+            actual_duration_seconds
         )
+        work_session.session_state = "completed"
+        work_session.outcome = outcome
+        work_session.interrupted = interrupted
+        work_session.note = cleaned_note or None
 
-        daily_task.state = "completed"
+        if outcome in {"complete", "abandoned"}:
+            renumber_daily_queue(
+                db=db,
+                target_date=daily_task.date,
+            )
 
-    elif outcome == "abandoned":
-        cancel_task(
-            db=db,
-            task=task,
-        )
-
-        daily_task.state = "abandoned"
-
-    elif outcome in {"stuck", "paused"}:
-        move_daily_task_to_bottom(
-            db=db,
-            daily_task=daily_task,
-        )
-
-    work_session.ended_at = ended_at
-    work_session.actual_duration_seconds = (
-        actual_duration_seconds
-    )
-    work_session.session_state = "completed"
-    work_session.outcome = outcome
-    work_session.interrupted = interrupted
-    work_session.note = cleaned_note or None
-
-    if outcome in {"complete", "abandoned"}:
-        renumber_daily_queue(
-            db=db,
-            target_date=daily_task.date,
-        )
-
-    db.commit()
-    db.refresh(work_session)
+        db.commit()
+        db.refresh(work_session)
+    except Exception:
+        db.rollback()
+        raise
 
     return work_session

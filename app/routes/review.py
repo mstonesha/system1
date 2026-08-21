@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.review import build_daily_review
+from app.time import today
 
 router = APIRouter(
     prefix="/review",
@@ -23,7 +24,7 @@ def review_page(
     target_date: date | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     previous_date = selected_date - timedelta(days=1)
     next_date = selected_date + timedelta(days=1)
@@ -51,7 +52,7 @@ def review_data(
     target_date: date | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     return build_daily_review(
         db=db,

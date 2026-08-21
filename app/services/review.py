@@ -1,30 +1,23 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import DailyTask, WorkSession
+from app.time import local_day_bounds_utc
 
 
 def get_completed_sessions_for_date(
     db: Session,
     target_date: date,
 ) -> list[WorkSession]:
-    start_of_day = datetime.combine(
-        target_date,
-        time.min,
-    )
-
-    end_of_day = datetime.combine(
-        target_date,
-        time.max,
-    )
+    start_utc, end_utc = local_day_bounds_utc(target_date)
 
     return (
         db.query(WorkSession)
         .filter(
             WorkSession.session_state == "completed",
-            WorkSession.started_at >= start_of_day,
-            WorkSession.started_at <= end_of_day,
+            WorkSession.started_at >= start_utc,
+            WorkSession.started_at < end_utc,
         )
         .order_by(WorkSession.started_at)
         .all()

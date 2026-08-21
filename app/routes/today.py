@@ -13,6 +13,7 @@ from app.services.today import (
     remove_task_from_day,
     update_planned_sessions,
 )
+from app.time import today
 
 from fastapi.responses import RedirectResponse
 
@@ -34,7 +35,7 @@ def get_today(
     target_date: date | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     return get_daily_tasks_for_date(
         db=db,
@@ -49,7 +50,7 @@ def add_to_today(
     planned_sessions: int | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     task = db.get(Task, task_id)
 
@@ -105,7 +106,7 @@ def today_page(
     target_date: date | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_date = target_date or date.today()
+    selected_date = target_date or today()
 
     previous_date = selected_date - timedelta(days=1)
     next_date = selected_date + timedelta(days=1)

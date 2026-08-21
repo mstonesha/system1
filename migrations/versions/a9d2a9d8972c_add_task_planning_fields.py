@@ -77,3 +77,11 @@ def upgrade() -> None:
         "sort_order",
         server_default=None,
     )
+
+
+def downgrade() -> None:
+    op.drop_column("tasks", "sort_order")
+    op.drop_column("tasks", "completed_at")
+    op.drop_column("tasks", "due_date")
+    op.drop_column("tasks", "estimated_sessions")
+    op.drop_column("tasks", "priority")
