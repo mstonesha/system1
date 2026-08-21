@@ -1,38 +1,23 @@
 {% extends "base.html" %}
 
 {% block title %}
-Tasks | System 1
+Task List | Akrasia_Zero
 {% endblock %}
+
+{% block task_nav_class %}active{% endblock %}
 
 {% block content %}
 
-<section>
+<section class="task-list-page">
 
-    <h2>Tasks</h2>
+    <div class="task-list-header">
 
-    <form
-        hx-post="/tasks/create"
-        hx-target="#task-list"
-        hx-swap="innerHTML"
-        hx-include="#show-inactive"
-        hx-on::after-request="this.reset()"
-    >
-        <input
-            type="text"
-            name="title"
-            placeholder="New task"
-            required
-        >
+        <h1 class="task-list-heading">
+            Task List
+        </h1>
 
-        <button type="submit">
-            Add task
-        </button>
-    </form>
+        <label class="inactive-toggle">
 
-
-    <div class="task-controls">
-
-        <label>
             <input
                 id="show-inactive"
                 type="checkbox"
@@ -45,14 +30,83 @@ Tasks | System 1
                 hx-include="this"
             >
 
-            Show inactive tasks
+            <span>
+                Show completed / cancelled
+            </span>
+
         </label>
 
     </div>
 
 
-    <div id="task-list">
+    <div
+        id="task-list"
+        class="task-list"
+    >
         {% include "partials/task_tree.html" %}
+    </div>
+
+
+    <div class="new-task-area">
+
+        <button
+            type="button"
+            class="new-task-toggle"
+            onclick="
+                const form = document.getElementById('new-task-form');
+                form.hidden = !form.hidden;
+
+                if (!form.hidden) {
+                    form.querySelector('input[name=title]').focus();
+                }
+            "
+        >
+            + Add New Task
+        </button>
+
+
+        <form
+            id="new-task-form"
+            class="new-task-form"
+            hidden
+            hx-post="/tasks/create"
+            hx-target="#task-list"
+            hx-swap="innerHTML"
+            hx-include="#show-inactive"
+            hx-on::after-request="
+                this.reset();
+                this.hidden = true;
+            "
+        >
+
+            <input
+                type="text"
+                name="title"
+                placeholder="Task name"
+                autocomplete="off"
+                required
+            >
+
+            <button
+                type="submit"
+                class="primary"
+            >
+                Add Task
+            </button>
+
+            <button
+                type="button"
+                onclick="
+                    const form = document.getElementById('new-task-form');
+                    form.reset();
+                    form.hidden = true;
+                "
+            >
+                Cancel
+            </button>
+
+        </form>
+
     </div>
 
 </section>

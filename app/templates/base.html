@@ -1,35 +1,156 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>{% block title %}System 1{% endblock %}</title>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        {% block title %}
+        Akrasia_Zero
+        {% endblock %}
+    </title>
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+        rel="stylesheet"
+    >
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='styles.css') }}"
+        href="/static/styles.css"
     >
 
     <script
         src="https://unpkg.com/htmx.org@2.0.4"
-        defer>
-    </script>
+        defer
+    ></script>
 </head>
 
 <body>
-    <header>
-        <h1>System 1</h1>
-            <nav>
-                <a href="/today/page">Today</a>
-                <a href="/">Tasks</a>
-                <a href="/timer/">Timer</a>
-                <a href="/review/">Review</a>
-            </nav>
-    </header>
 
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+    <div class="app-shell">
+
+        <header class="app-header">
+
+            <div class="identity">
+
+                <div class="app-name">
+                    Akrasia_Zero:
+                </div>
+
+                <div class="user-context">
+                    Matt Stone
+                    <span aria-hidden="true">·</span>
+
+                    {% if selected_date is defined %}
+                        {{ selected_date.strftime("%d %B %Y") }}
+                    {% else %}
+                        <span id="current-date"></span>
+                    {% endif %}
+                </div>
+
+            </div>
+
+        </header>
+
+
+        <nav
+            class="primary-navigation"
+            aria-label="Primary navigation"
+        >
+
+            <a
+                href="/"
+                class="nav-tab {% block task_nav_class %}{% endblock %}"
+            >
+                Task List
+            </a>
+
+            <a
+                href="/today/page"
+                class="nav-tab {% block today_nav_class %}{% endblock %}"
+            >
+                Today’s Tasks
+            </a>
+
+            <a
+                href="/timer/"
+                class="nav-tab {% block timer_nav_class %}{% endblock %}"
+            >
+                Session Timer
+            </a>
+
+        </nav>
+
+
+        <main class="workspace">
+
+            {% block content %}
+            {% endblock %}
+
+        </main>
+
+
+        <footer class="app-footer">
+
+            <a
+                href="/review/"
+                class="review-link"
+            >
+                Review
+            </a>
+
+        </footer>
+
+    </div>
+
+
+    {% if selected_date is not defined %}
+
+        <script>
+            const currentDateElement =
+                document.getElementById("current-date");
+
+            if (currentDateElement) {
+
+                const formatter =
+                    new Intl.DateTimeFormat(
+                        "en-GB",
+                        {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric"
+                        }
+                    );
+
+                currentDateElement.textContent =
+                    formatter.format(
+                        new Date()
+                    );
+            }
+        </script>
+
+    {% endif %}
+
+    {% block scripts %}
+    {% endblock %}
+
 </body>
-</html>
+
+</html>s

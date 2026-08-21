@@ -226,3 +226,37 @@ def reopen_task(
         db=db,
         show_inactive=show_inactive,
     )
+
+@router.post("/tasks/{task_id}/edit")
+def edit_task(
+    task_id: int,
+    request: Request,
+    title: str = Form(...),
+    show_inactive: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    task = db.get(Task, task_id)
+
+    if task is None:
+        return HTMLResponse(
+            content="Task not found",
+            status_code=404,
+        )
+
+    if task.status != "active":
+        return HTMLResponse(
+            content="Only active tasks can be edited.",
+            status_code=409,
+        )
+
+    update_task_title(
+        db=db,
+        task=task,
+        title=title,
+    )
+
+    return render_task_tree(
+        request=request,
+        db=db,
+        show_inactive=show_inactive,
+    )

@@ -1,52 +1,179 @@
-<li id="task-{{ task.id }}" class="task-item">
+<li
+    id="task-{{ task.id }}"
+    class="
+        task-item
+        task-item-{{ task.status }}
+    "
+>
 
     <div class="task-row">
 
-        <span
-            class="
-                task-title
-                {% if task.status == 'completed' %}task-completed{% endif %}
-                {% if task.status == 'cancelled' %}task-cancelled{% endif %}
-            "
-        >
-            {{ task.title }}
-        </span>
+        <div class="task-row-main">
+
+            <div
+                class="task-action-group"
+                aria-label="Actions for {{ task.title }}"
+            >
+
+                {% if task.status == "active" %}
+
+                    <button
+                        type="button"
+                        class="task-icon-button"
+                        title="Complete task"
+                        aria-label="Complete {{ task.title }}"
+                        onclick="
+                            const completeBox =
+                                document.getElementById(
+                                    'complete-confirm-{{ task.id }}'
+                                );
+
+                            const cancelBox =
+                                document.getElementById(
+                                    'cancel-confirm-{{ task.id }}'
+                                );
+
+                            cancelBox.hidden = true;
+                            completeBox.hidden = !completeBox.hidden;
+                        "
+                    >
+                        ✓
+                    </button>
+
+
+                    <button
+                        type="button"
+                        class="task-icon-button"
+                        title="Cancel task"
+                        aria-label="Cancel {{ task.title }}"
+                        onclick="
+                            const completeBox =
+                                document.getElementById(
+                                    'complete-confirm-{{ task.id }}'
+                                );
+
+                            const cancelBox =
+                                document.getElementById(
+                                    'cancel-confirm-{{ task.id }}'
+                                );
+
+                            completeBox.hidden = true;
+                            cancelBox.hidden = !cancelBox.hidden;
+                        "
+                    >
+                        ×
+                    <button
+                        type="button"
+                        class="task-icon-button"
+                        title="Edit task"
+                        aria-label="Edit {{ task.title }}"
+                        onclick="
+                            const title =
+                                document.getElementById(
+                                    'task-title-{{ task.id }}'
+                                );
+
+                            const form =
+                                document.getElementById(
+                                    'edit-form-{{ task.id }}'
+                                );
+
+                            title.hidden = true;
+                            form.hidden = false;
+
+                            form.querySelector(
+                                'input[name=title]'
+                            ).focus();
+                        "
+                    >
+                        ✎
+                    </button>
+
+                {% else %}
+
+                    <button
+                        type="button"
+                        class="task-reopen-button"
+                        hx-post="/tasks/{{ task.id }}/reopen"
+                        hx-target="#task-list"
+                        hx-swap="innerHTML"
+                        hx-include="#show-inactive"
+                    >
+                        Reopen
+                    </button>
+
+                {% endif %}
+
+            </div>
+
+
+            <span
+                id="task-title-{{ task.id }}"
+                class="
+                    task-title
+                    {% if task.status == 'completed' %}
+                        task-completed
+                    {% endif %}
+                    {% if task.status == 'cancelled' %}
+                        task-cancelled
+                    {% endif %}
+                "
+            >
+                {{ task.title }}
+            </span>
+
+            <form
+                id="edit-form-{{ task.id }}"
+                class="task-inline-edit"
+                hidden
+                hx-post="/tasks/{{ task.id }}/edit"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
+            >
+
+                <input
+                    type="text"
+                    name="title"
+                    value="{{ task.title }}"
+                    autocomplete="off"
+                    required
+                >
+
+                <button
+                    type="submit"
+                    class="primary"
+                >
+                    Confirm
+                </button>
+
+                <button
+                    type="button"
+                    onclick="
+                        const title =
+                            document.getElementById(
+                                'task-title-{{ task.id }}'
+                            );
+
+                        const form =
+                            document.getElementById(
+                                'edit-form-{{ task.id }}'
+                            );
+
+                        form.reset();
+                        form.hidden = true;
+                        title.hidden = false;
+                    "
+                >
+                    Cancel
+                </button>
+
+            </form>
+
+        </div>
 
 
         {% if task.status == "active" %}
-
-            <button
-                type="button"
-                hx-post="/tasks/{{ task.id }}/complete"
-                hx-target="#task-list"
-                hx-swap="innerHTML"
-                hx-include="#show-inactive"
-            >
-                Complete
-            </button>
-
-
-            <button
-                type="button"
-                hx-post="/tasks/{{ task.id }}/cancel"
-                hx-target="#task-list"
-                hx-swap="innerHTML"
-                hx-include="#show-inactive"
-            >
-                Cancel
-            </button>
-
-
-            <button
-                type="button"
-                hx-get="/tasks/{{ task.id }}/edit"
-                hx-target="#task-{{ task.id }}"
-                hx-swap="outerHTML"
-                hx-include="#show-inactive"
-            >
-                Edit
-            </button>
-
 
             <button
                 type="button"
@@ -58,22 +185,15 @@
                         );
 
                     form.hidden = !form.hidden;
+
+                    if (!form.hidden) {
+                        form.querySelector(
+                            'input[name=title]'
+                        ).focus();
+                    }
                 "
             >
-                + Subtask
-            </button>
-
-
-        {% else %}
-
-            <button
-                type="button"
-                hx-post="/tasks/{{ task.id }}/reopen"
-                hx-target="#task-list"
-                hx-swap="innerHTML"
-                hx-include="#show-inactive"
-            >
-                Reopen
+                + Add subtask
             </button>
 
         {% endif %}
@@ -82,6 +202,76 @@
 
 
     {% if task.status == "active" %}
+
+        <div
+            id="complete-confirm-{{ task.id }}"
+            class="task-confirmation"
+            hidden
+        >
+
+            <span class="task-confirmation-question">
+                Complete “{{ task.title }}”?
+            </span>
+
+            <button
+                type="button"
+                class="confirmation-yes"
+                hx-post="/tasks/{{ task.id }}/complete"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
+            >
+                Yes
+            </button>
+
+            <button
+                type="button"
+                onclick="
+                    document.getElementById(
+                        'complete-confirm-{{ task.id }}'
+                    ).hidden = true;
+                "
+            >
+                No
+            </button>
+
+        </div>
+
+
+        <div
+            id="cancel-confirm-{{ task.id }}"
+            class="task-confirmation task-confirmation-cancel"
+            hidden
+        >
+
+            <span class="task-confirmation-question">
+                Cancel “{{ task.title }}”?
+            </span>
+
+            <button
+                type="button"
+                class="confirmation-yes"
+                hx-post="/tasks/{{ task.id }}/cancel"
+                hx-target="#task-list"
+                hx-swap="innerHTML"
+                hx-include="#show-inactive"
+            >
+                Yes
+            </button>
+
+            <button
+                type="button"
+                onclick="
+                    document.getElementById(
+                        'cancel-confirm-{{ task.id }}'
+                    ).hidden = true;
+                "
+            >
+                No
+            </button>
+
+        </div>
+
 
         <form
             id="subtask-form-{{ task.id }}"
@@ -100,12 +290,31 @@
             <input
                 type="text"
                 name="title"
-                placeholder="New subtask"
+                placeholder="Subtask name"
+                autocomplete="off"
                 required
             >
 
-            <button type="submit">
+            <button
+                type="submit"
+                class="primary"
+            >
                 Add
+            </button>
+
+            <button
+                type="button"
+                onclick="
+                    const form =
+                        document.getElementById(
+                            'subtask-form-{{ task.id }}'
+                        );
+
+                    form.reset();
+                    form.hidden = true;
+                "
+            >
+                Cancel
             </button>
 
         </form>
@@ -123,6 +332,7 @@
             {% if show_inactive or child.status == "active" %}
 
                 {% set task = child %}
+
                 {% include "partials/task_item.html" %}
 
             {% endif %}
