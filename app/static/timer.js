@@ -4,8 +4,23 @@ const sessionElement =
 const timerDisplay =
     document.getElementById("timer-display");
 
+const progressFill =
+    document.getElementById("focus-progress");
+
 const completeMessage =
     document.getElementById("session-complete-message");
+
+const runningControls =
+    document.getElementById("running-controls");
+
+const actualDuration =
+    document.getElementById("actual-duration");
+
+const noteField =
+    document.getElementById("session-note");
+
+const noteCounter =
+    document.getElementById("note-counter");
 
 
 if (sessionElement && timerDisplay) {
@@ -20,59 +35,187 @@ if (sessionElement && timerDisplay) {
             sessionElement.dataset.durationSeconds
         );
 
-    const endTime =
-        startedAt.getTime() +
-        (durationSeconds * 1000);
+    const plannedEndTime =
+        startedAt.getTime()
+        + (durationSeconds * 1000);
+
+    const endedAtValue =
+        sessionElement.dataset.endedAt;
+
+    const recordedEndTime =
+        endedAtValue
+            ? new Date(endedAtValue + "Z").getTime()
+            : null;
 
     let timerInterval = null;
 
 
+    function formatClock(seconds) {
+
+        const minutes =
+            Math.floor(seconds / 60);
+
+        const remainder =
+            seconds % 60;
+
+        return (
+            String(minutes).padStart(2, "0")
+            + ":"
+            + String(remainder).padStart(2, "0")
+        );
+    }
+
+
+    function showOutcome(endTime) {
+
+        if (timerInterval !== null) {
+            clearInterval(timerInterval);
+        }
+
+        if (runningControls) {
+            runningControls.hidden = true;
+        }
+
+        if (completeMessage) {
+            completeMessage.hidden = false;
+        }
+
+        const elapsedSeconds =
+            Math.max(
+                0,
+                Math.min(
+                    durationSeconds,
+                    Math.floor(
+                        (
+                            endTime
+                            - startedAt.getTime()
+                        ) / 1000
+                    )
+                )
+            );
+
+        if (actualDuration) {
+
+            const minutes =
+                Math.floor(elapsedSeconds / 60);
+
+            const seconds =
+                elapsedSeconds % 60;
+
+            actualDuration.textContent =
+                seconds === 0
+                    ? `${minutes} min`
+                    : `${minutes}m ${seconds}s`;
+        }
+
+        if (progressFill) {
+
+            const progress =
+                Math.min(
+                    1,
+                    elapsedSeconds / durationSeconds
+                );
+
+            progressFill.style.width =
+                `${progress * 100}%`;
+        }
+    }
+
+
     function updateTimer() {
 
-        const now = Date.now();
+        if (recordedEndTime !== null) {
 
-        const remainingMilliseconds =
-            endTime - now;
+            const remainingSeconds =
+                Math.max(
+                    0,
+                    Math.ceil(
+                        (
+                            plannedEndTime
+                            - recordedEndTime
+                        ) / 1000
+                    )
+                );
+
+            timerDisplay.textContent =
+                formatClock(remainingSeconds);
+
+            showOutcome(recordedEndTime);
+
+            return;
+        }
+
+        const now =
+            Date.now();
 
         const remainingSeconds =
             Math.max(
                 0,
                 Math.ceil(
-                    remainingMilliseconds / 1000
+                    (
+                        plannedEndTime
+                        - now
+                    ) / 1000
                 )
             );
 
-        const minutes =
-            Math.floor(
-                remainingSeconds / 60
+        const elapsedSeconds =
+            Math.max(
+                0,
+                durationSeconds
+                - remainingSeconds
             );
 
-        const seconds =
-            remainingSeconds % 60;
-
         timerDisplay.textContent =
-            String(minutes).padStart(2, "0") +
-            ":" +
-            String(seconds).padStart(2, "0");
+            formatClock(remainingSeconds);
+
+        if (progressFill) {
+
+            const progress =
+                Math.min(
+                    1,
+                    elapsedSeconds / durationSeconds
+                );
+
+            progressFill.style.width =
+                `${progress * 100}%`;
+        }
 
         if (remainingSeconds <= 0) {
 
-            if (timerInterval !== null) {
-                clearInterval(timerInterval);
-            }
+            timerDisplay.textContent =
+                "00:00";
 
-            if (completeMessage) {
-                completeMessage.hidden = false;
-            }
+            showOutcome(plannedEndTime);
         }
     }
 
 
     updateTimer();
 
-    timerInterval =
-        setInterval(
-            updateTimer,
-            1000
-        );
+    if (recordedEndTime === null) {
+
+        timerInterval =
+            setInterval(
+                updateTimer,
+                1000
+            );
+    }
+}
+
+
+if (noteField && noteCounter) {
+
+    function updateNoteCounter() {
+
+        noteCounter.textContent =
+            `${noteField.value.length} / 64`;
+    }
+
+    noteField.addEventListener(
+        "input",
+        updateNoteCounter
+    );
+
+    updateNoteCounter();
 }

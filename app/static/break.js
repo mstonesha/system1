@@ -4,6 +4,9 @@ const breakElement =
 const breakDisplay =
     document.getElementById("break-timer-display");
 
+const breakProgress =
+    document.getElementById("break-progress");
+
 
 if (breakElement && breakDisplay) {
 
@@ -12,22 +15,32 @@ if (breakElement && breakDisplay) {
             breakElement.dataset.breakUntil
         );
 
+    const durationSeconds =
+        Number(
+            breakElement.dataset.breakDurationSeconds
+        );
+
     const breakEndTime =
         breakUntilSeconds * 1000;
+
+    const breakStartTime =
+        breakEndTime
+        - (durationSeconds * 1000);
 
 
     function updateBreakTimer() {
 
-        const now = Date.now();
-
-        const remainingMilliseconds =
-            breakEndTime - now;
+        const now =
+            Date.now();
 
         const remainingSeconds =
             Math.max(
                 0,
                 Math.ceil(
-                    remainingMilliseconds / 1000
+                    (
+                        breakEndTime
+                        - now
+                    ) / 1000
                 )
             );
 
@@ -40,15 +53,37 @@ if (breakElement && breakDisplay) {
             remainingSeconds % 60;
 
         breakDisplay.textContent =
-            String(minutes).padStart(2, "0") +
-            ":" +
-            String(seconds).padStart(2, "0");
+            String(minutes).padStart(2, "0")
+            + ":"
+            + String(seconds).padStart(2, "0");
+
+
+        if (breakProgress) {
+
+            const elapsedMilliseconds =
+                Math.max(
+                    0,
+                    now - breakStartTime
+                );
+
+            const progress =
+                Math.min(
+                    1,
+                    elapsedMilliseconds
+                    / (durationSeconds * 1000)
+                );
+
+            breakProgress.style.width =
+                `${progress * 100}%`;
+        }
+
 
         if (remainingSeconds <= 0) {
 
             clearInterval(breakTimerInterval);
 
-            window.location.href = "/timer/";
+            window.location.href =
+                "/timer/";
         }
     }
 

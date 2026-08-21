@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import WorkSession
 from app.services.sessions import (
     commit_work_session,
+    end_work_session_early,
     get_next_daily_task,
     get_running_session,
     start_work_session,
@@ -58,6 +59,34 @@ def timer_page(
             target_date=selected_date,
         )
 
+    session_number = None
+    session_total = None
+    session_daily_task = None
+
+    if running_session is not None:
+        session_daily_task = running_session.daily_task
+
+    elif next_daily_task is not None:
+        session_daily_task = next_daily_task
+
+    if session_daily_task is not None:
+        completed_session_count = (
+            db.query(WorkSession)
+            .filter(
+                WorkSession.daily_task_id
+                == session_daily_task.id,
+                WorkSession.session_state == "completed",
+            )
+            .count()
+        )
+
+        session_number = completed_session_count + 1
+
+        session_total = max(
+            session_number,
+            session_daily_task.planned_sessions or 1,
+        )
+
     return templates.TemplateResponse(
         request=request,
         name="timer.html",
@@ -66,6 +95,8 @@ def timer_page(
             "running_session": running_session,
             "break_until": active_break_until,
             "next_daily_task": next_daily_task,
+            "session_number": session_number,
+            "session_total": session_total,
         },
     )
 
@@ -82,6 +113,39 @@ def start_timer(
             db=db,
             target_date=selected_date,
             duration_minutes=duration_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    return RedirectResponse(
+        url="/timer/",
+        status_code=303,
+    )
+
+
+@router.post("/end-early")
+def end_timer_early(
+    session_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    work_session = db.get(
+        WorkSession,
+        session_id,
+    )
+
+    if work_session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Work session not found.",
+        )
+
+    try:
+        end_work_session_early(
+            db=db,
+            work_session=work_session,
         )
     except ValueError as exc:
         raise HTTPException(

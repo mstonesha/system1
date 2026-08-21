@@ -1,47 +1,86 @@
 {% extends "base.html" %}
 
 {% block title %}
-Timer | System 1
+Session Timer | Akrasia_Zero
 {% endblock %}
+
+{% block timer_nav_class %}active{% endblock %}
 
 {% block content %}
 
-<section class="timer-page">
+<section class="focus-page">
 
     {% if running_session %}
 
-        <h2>Focus</h2>
-
         <div
             id="running-session"
+            class="
+                focus-instrument
+                {% if running_session.ended_at %}
+                    focus-outcome-state
+                {% else %}
+                    focus-running-state
+                {% endif %}
+            "
             data-started-at="{{ running_session.started_at.isoformat() }}"
             data-duration-seconds="{{ running_session.planned_duration_seconds }}"
+            {% if running_session.ended_at %}
+                data-ended-at="{{ running_session.ended_at.isoformat() }}"
+            {% endif %}
         >
 
-            <h3>
-                {{ running_session.daily_task.task.title }}
-            </h3>
+            <header class="focus-header">
 
-            <div id="timer-display">
-                --:--
+                <div class="focus-state-label">
+                    {% if running_session.ended_at %}
+                        Session ended
+                    {% else %}
+                        Focus
+                    {% endif %}
+                </div>
+
+                <h1 class="focus-task-title">
+                    {{ running_session.daily_task.task.title }}
+                </h1>
+
+                <div class="focus-session-number">
+                    Session {{ session_number }} of {{ session_total }}
+                </div>
+
+            </header>
+
+
+            <div class="focus-clock-area">
+
+                <div
+                    id="timer-display"
+                    class="focus-clock"
+                >
+                    --:--
+                </div>
+
+                <div
+                    class="focus-progress-track"
+                    aria-hidden="true"
+                >
+                    <div
+                        id="focus-progress"
+                        class="focus-progress-fill"
+                    ></div>
+                </div>
+
             </div>
 
-            <p>
-                Session length:
-                {{ running_session.planned_duration_seconds // 60 }}
-                minutes
-            </p>
 
             <div
-                id="session-complete-message"
-                hidden
+                id="running-controls"
+                class="running-controls"
+                {% if running_session.ended_at %}hidden{% endif %}
             >
-
-                <h3>Session complete</h3>
 
                 <form
                     method="post"
-                    action="/timer/commit"
+                    action="/timer/end-early"
                 >
 
                     <input
@@ -50,64 +89,145 @@ Timer | System 1
                         value="{{ running_session.id }}"
                     >
 
-                    <p>
-                        <label>
+                    <button
+                        type="submit"
+                        class="end-early-button"
+                    >
+                        End Early
+                    </button>
+
+                </form>
+
+            </div>
+
+
+            <div
+                id="session-complete-message"
+                class="session-outcome"
+                {% if not running_session.ended_at %}hidden{% endif %}
+            >
+
+                <div class="session-timing-summary">
+
+                    <span>
+                        Planned
+                        <strong>
+                            {{ running_session.planned_duration_seconds // 60 }}
+                            min
+                        </strong>
+                    </span>
+
+                    <span>
+                        Actual
+                        <strong id="actual-duration">
+                            --
+                        </strong>
+                    </span>
+
+                </div>
+
+
+                <form
+                    method="post"
+                    action="/timer/commit"
+                    class="outcome-form"
+                >
+
+                    <input
+                        type="hidden"
+                        name="session_id"
+                        value="{{ running_session.id }}"
+                    >
+
+
+                    <fieldset class="outcome-fieldset">
+
+                        <legend>
                             Result
+                        </legend>
 
-                            <select
-                                name="outcome"
-                                required
-                            >
-                                <option value="progress">
-                                    Progress
-                                </option>
+                        <div class="outcome-options">
 
-                                <option value="complete">
-                                    Complete
-                                </option>
+                            {% for value, label in [
+                                ("progress", "Progress"),
+                                ("complete", "Complete"),
+                                ("stuck", "Stuck"),
+                                ("paused", "Paused"),
+                                ("abandoned", "Abandoned")
+                            ] %}
 
-                                <option value="stuck">
-                                    Stuck
-                                </option>
+                                <label class="outcome-option">
 
-                                <option value="paused">
-                                    Paused
-                                </option>
+                                    <input
+                                        type="radio"
+                                        name="outcome"
+                                        value="{{ value }}"
+                                        required
+                                    >
 
-                                <option value="abandoned">
-                                    Abandoned
-                                </option>
-                            </select>
-                        </label>
-                    </p>
+                                    <span>
+                                        {{ label }}
+                                    </span>
 
-                    <p>
-                        <label>
-                            <input
-                                type="checkbox"
-                                name="interrupted"
-                                value="true"
-                            >
+                                </label>
 
+                            {% endfor %}
+
+                        </div>
+
+                    </fieldset>
+
+
+                    <label class="interrupted-control">
+
+                        <input
+                            type="checkbox"
+                            name="interrupted"
+                            value="true"
+                        >
+
+                        <span>
                             Interrupted
-                        </label>
-                    </p>
+                        </span>
 
-                    <p>
-                        <label>
-                            Note
-                            <br>
+                    </label>
 
-                            <textarea
-                                name="note"
-                                rows="3"
-                                maxlength="500"
-                                placeholder="Optional"
-                            ></textarea>
-                        </label>
-                    </p>
 
-                    <button type="submit">
+                    <div class="session-note-field">
+
+                        <div class="session-note-header">
+
+                            <label for="session-note">
+                                Note
+                                <span class="muted">
+                                    Optional
+                                </span>
+                            </label>
+
+                            <span
+                                id="note-counter"
+                                class="note-counter"
+                            >
+                                0 / 64
+                            </span>
+
+                        </div>
+
+                        <textarea
+                            id="session-note"
+                            name="note"
+                            rows="2"
+                            maxlength="64"
+                            placeholder="Short signal only"
+                        ></textarea>
+
+                    </div>
+
+
+                    <button
+                        type="submit"
+                        class="commit-session-button"
+                    >
                         Commit Session
                     </button>
 
@@ -120,88 +240,197 @@ Timer | System 1
 
     {% elif break_until %}
 
-        <h2>Break</h2>
-
         <div
             id="break-timer"
+            class="focus-instrument break-state"
             data-break-until="{{ break_until }}"
+            data-break-duration-seconds="300"
         >
 
-            <div id="break-timer-display">
-                --:--
+            <header class="focus-header">
+
+                <div class="focus-state-label">
+                    Break
+                </div>
+
+            </header>
+
+
+            <div class="focus-clock-area">
+
+                <div
+                    id="break-timer-display"
+                    class="focus-clock"
+                >
+                    --:--
+                </div>
+
+                <div
+                    class="focus-progress-track"
+                    aria-hidden="true"
+                >
+                    <div
+                        id="break-progress"
+                        class="focus-progress-fill"
+                    ></div>
+                </div>
+
             </div>
 
-            <p>
-                Step away for a few minutes.
-            </p>
 
-            <p>
-                <a href="/timer/">
-                    Skip break
-                </a>
-            </p>
+            <a
+                href="/timer/"
+                class="end-early-button"
+            >
+                End Early
+            </a>
 
         </div>
 
 
     {% elif next_daily_task %}
 
-        <h2>Focus</h2>
+        <div class="focus-instrument focus-ready-state">
 
-        <h3>
-            {{ next_daily_task.task.title }}
-        </h3>
+            <header class="focus-header">
 
-        <form
-            method="post"
-            action="/timer/start"
-        >
+                <div class="focus-state-label">
+                    Ready
+                </div>
 
-            <label>
-                Session length
+                <h1 class="focus-task-title">
+                    {{ next_daily_task.task.title }}
+                </h1>
 
-                <input
-                    type="number"
-                    name="duration_minutes"
-                    min="1"
-                    value="25"
-                    required
+                <div class="focus-session-number">
+                    Session {{ session_number }} of {{ session_total }}
+                </div>
+
+            </header>
+
+
+            <div class="focus-clock-area">
+
+                <div
+                    id="ready-timer-display"
+                    class="focus-clock"
                 >
+                    25:00
+                </div>
 
-                minutes
-            </label>
+                <div
+                    class="focus-progress-track"
+                    aria-hidden="true"
+                >
+                    <div
+                        class="focus-progress-fill"
+                        style="width: 0;"
+                    ></div>
+                </div>
 
-            <button type="submit">
-                Start Focus
-            </button>
+            </div>
 
-        </form>
+
+            <form
+                method="post"
+                action="/timer/start"
+                class="focus-start-form"
+            >
+
+                <div class="session-length-control">
+
+                    <label for="duration-minutes">
+                        Session Length
+                    </label>
+
+                    <div class="session-length-input">
+
+                        <input
+                            id="duration-minutes"
+                            type="number"
+                            name="duration_minutes"
+                            min="1"
+                            value="25"
+                            required
+                            oninput="
+                                const display =
+                                    document.getElementById(
+                                        'ready-timer-display'
+                                    );
+
+                                const value =
+                                    Math.max(
+                                        1,
+                                        Number(this.value) || 1
+                                    );
+
+                                display.textContent =
+                                    String(value).padStart(2, '0')
+                                    + ':00';
+                            "
+                        >
+
+                        <span>
+                            Minutes
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="start-focus-button"
+                >
+                    Start Focus
+                </button>
+
+            </form>
+
+        </div>
 
 
     {% else %}
 
-        <h2>Focus</h2>
+        <div class="focus-instrument focus-empty-state">
 
-        <p>
-            There are no planned tasks for today.
-        </p>
+            <div class="focus-state-label">
+                Session Timer
+            </div>
 
-        <p>
-            <a href="/today/page">
-                Go to Today
+            <h1>
+                Nothing queued
+            </h1>
+
+            <p>
+                There are no planned tasks for today.
+            </p>
+
+            <a
+                href="/today/page"
+                class="button"
+            >
+                Go to Today’s Tasks
             </a>
-        </p>
+
+        </div>
 
     {% endif %}
 
 </section>
 
-{% if running_session %}
-    <script src="/static/timer.js"></script>
-{% endif %}
+{% endblock %}
 
-{% if break_until %}
-    <script src="/static/break.js"></script>
-{% endif %}
+
+{% block scripts %}
+
+    {% if running_session %}
+        <script src="/static/timer.js"></script>
+    {% endif %}
+
+    {% if break_until %}
+        <script src="/static/break.js"></script>
+    {% endif %}
 
 {% endblock %}

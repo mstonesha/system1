@@ -1628,3 +1628,458 @@ button[type="submit"].primary:hover {
         padding: var(--space-lg);
     }
 }
+
+/* --------------------------------------------------
+   Session Timer
+-------------------------------------------------- */
+
+.focus-page {
+    display: flex;
+    justify-content: center;
+
+    width: 100%;
+    min-height: 100%;
+}
+
+.focus-instrument {
+    width: min(100%, 46rem);
+
+    margin: 0 auto;
+
+    padding:
+        var(--space-lg)
+        var(--space-xl)
+        var(--space-xl);
+
+    text-align: center;
+}
+
+.focus-header {
+    margin-bottom: 1rem;
+}
+
+.interrupted-control input[type="checkbox"] {
+    accent-color: var(--color-midnight-blue);
+}
+
+.focus-state-label {
+    margin-bottom: 0.35rem;
+
+    color: var(--color-gray);
+
+    font-size: 0.75rem;
+    font-weight: 600;
+
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+}
+
+.focus-task-title {
+    max-width: 36rem;
+
+    margin:
+        0
+        auto
+        0.35rem;
+
+    font-family: var(--font-serif);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 600;
+
+    line-height: 1.2;
+}
+
+.focus-session-number {
+    color: var(--color-gray);
+
+    font-size: 0.85rem;
+}
+
+
+/* Clock */
+
+.focus-clock-area {
+    width: min(100%, 34rem);
+
+    margin:
+        1.5rem
+        auto
+        1.4rem;
+}
+
+.focus-clock {
+    font-family: var(--font-sans);
+
+    font-size: clamp(4.5rem, 11vw, 8rem);
+    font-weight: 600;
+
+    line-height: 0.95;
+
+    letter-spacing: -0.055em;
+
+    font-variant-numeric: tabular-nums;
+}
+
+.focus-progress-track {
+    width: 100%;
+    height: 4px;
+
+    margin-top: 1.6rem;
+
+    background:
+        rgba(43, 45, 66, 0.16);
+
+    overflow: hidden;
+}
+
+.focus-progress-fill {
+    width: 0;
+    height: 100%;
+
+    background: var(--color-peru);
+
+    transition: width 1s linear;
+}
+
+
+/* Ready */
+
+.focus-start-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    gap: 1.2rem;
+}
+
+.session-length-control {
+    display: flex;
+    align-items: center;
+
+    gap: var(--space-md);
+
+    color: var(--color-gray);
+
+    font-size: 0.85rem;
+}
+
+.session-length-input {
+    display: flex;
+    align-items: center;
+
+    gap: 0.45rem;
+}
+
+.session-length-input input {
+    width: 4rem;
+
+    text-align: center;
+}
+
+.start-focus-button {
+    min-width: 10rem;
+    min-height: 2.8rem;
+
+    background: var(--color-maroon);
+    border-color: var(--color-maroon);
+
+    color: var(--color-antique-white);
+
+    font-weight: 600;
+}
+
+.start-focus-button:hover {
+    background: var(--color-midnight-blue);
+    border-color: var(--color-midnight-blue);
+}
+
+
+/* Running / break */
+
+.running-controls {
+    display: flex;
+    justify-content: center;
+}
+
+.running-controls[hidden] {
+    display: none;
+}
+
+.end-early-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 2rem;
+
+    padding: 0.3rem 0.65rem;
+
+    border: none;
+
+    background: transparent;
+
+    color: var(--color-gray);
+
+    font-size: 0.82rem;
+    font-weight: 500;
+
+    text-decoration: none;
+
+    cursor: pointer;
+}
+
+.end-early-button:hover {
+    background: transparent;
+
+    color: var(--color-maroon);
+
+    text-decoration: underline;
+}
+
+
+/* Outcome */
+
+.session-outcome {
+    width: min(100%, 38rem);
+
+    margin:
+        var(--space-xl)
+        auto
+        0;
+
+    padding-top: var(--space-lg);
+
+    border-top: 1px solid var(--border-color);
+
+    text-align: left;
+}
+
+.session-outcome[hidden] {
+    display: none;
+}
+
+.session-timing-summary {
+    display: flex;
+    justify-content: center;
+
+    gap: var(--space-xl);
+
+    margin-bottom: var(--space-lg);
+
+    color: var(--color-gray);
+
+    font-size: 0.8rem;
+}
+
+.session-timing-summary strong {
+    margin-left: 0.25rem;
+
+    color: var(--color-midnight-blue);
+
+    font-weight: 600;
+}
+
+.outcome-fieldset {
+    margin: 0 0 var(--space-lg);
+    padding: 0;
+
+    border: none;
+}
+
+.outcome-fieldset legend {
+    margin-bottom: 0.55rem;
+
+    color: var(--color-gray);
+
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+.outcome-options {
+    display: grid;
+
+    grid-template-columns:
+        repeat(5, 1fr);
+
+    gap: 0.4rem;
+}
+
+.outcome-option {
+    cursor: pointer;
+}
+
+.outcome-option input {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    opacity: 0;
+    pointer-events: none;
+}
+
+.outcome-option span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 2.4rem;
+
+    padding: 0.35rem 0.45rem;
+
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-small);
+
+    color: var(--color-midnight-blue);
+
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+.outcome-option:hover span {
+    background:
+        rgba(190, 152, 96, 0.12);
+}
+
+.outcome-option input:checked + span {
+    border-color: var(--color-midnight-blue);
+
+    background: var(--color-midnight-blue);
+
+    color: var(--color-antique-white);
+}
+
+.outcome-option input:focus-visible + span {
+    outline: 2px solid var(--color-maroon);
+    outline-offset: 3px;
+}
+
+
+/* Interrupted */
+
+.interrupted-control {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 0.5rem;
+
+    margin-bottom: var(--space-lg);
+
+    font-size: 0.85rem;
+
+    cursor: pointer;
+}
+
+.interrupted-control input {
+    margin: 0;
+}
+
+
+/* Note */
+
+.session-note-field {
+    margin-bottom: var(--space-lg);
+}
+
+.session-note-header {
+    display: flex;
+    justify-content: space-between;
+
+    gap: var(--space-md);
+
+    margin-bottom: 0.4rem;
+
+    font-size: 0.8rem;
+}
+
+.note-counter {
+    color: var(--color-gray);
+
+    font-variant-numeric: tabular-nums;
+}
+
+.session-note-field textarea {
+    width: 100%;
+
+    min-height: 4rem;
+}
+
+
+/* Commit */
+
+.commit-session-button {
+    width: 100%;
+
+    min-height: 2.7rem;
+
+    background: var(--color-maroon);
+    border-color: var(--color-maroon);
+
+    color: var(--color-antique-white);
+
+    font-weight: 600;
+}
+
+.commit-session-button:hover {
+    background: var(--color-midnight-blue);
+    border-color: var(--color-midnight-blue);
+}
+
+
+/* Break */
+
+.break-state {
+    padding-top: var(--space-xxl);
+}
+
+.break-state .focus-clock-area {
+    margin-top: var(--space-lg);
+}
+
+
+/* Empty */
+
+.focus-empty-state {
+    padding-top: var(--space-xxl);
+}
+
+.focus-empty-state h1 {
+    font-family: var(--font-serif);
+}
+
+.focus-empty-state p {
+    color: var(--color-gray);
+}
+
+
+/* Mobile */
+
+@media (max-width: 650px) {
+
+    .focus-instrument {
+        padding:
+            var(--space-lg)
+            var(--space-md);
+    }
+
+    .focus-clock {
+        font-size: clamp(4rem, 22vw, 6rem);
+    }
+
+    .outcome-options {
+        grid-template-columns:
+            repeat(2, 1fr);
+    }
+
+    .outcome-option:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .session-length-control {
+        align-items: flex-start;
+        flex-direction: column;
+
+        gap: 0.4rem;
+    }
+
+}

@@ -116,6 +116,38 @@ def renumber_daily_queue(
         item.sort_order = index
 
 
+def end_work_session_early(
+    db: Session,
+    work_session: WorkSession,
+) -> WorkSession:
+    if work_session.session_state != "running":
+        raise ValueError(
+            "This work session is no longer running."
+        )
+
+    if work_session.ended_at is not None:
+        return work_session
+
+    now = datetime.utcnow()
+
+    planned_end_at = (
+        work_session.started_at
+        + timedelta(
+            seconds=work_session.planned_duration_seconds
+        )
+    )
+
+    work_session.ended_at = min(
+        now,
+        planned_end_at,
+    )
+
+    db.commit()
+    db.refresh(work_session)
+
+    return work_session
+    
+
 def commit_work_session(
     db: Session,
     work_session: WorkSession,
@@ -135,10 +167,19 @@ def commit_work_session(
             "This work session has already been committed."
         )
 
+    cleaned_note = (
+        note.strip()
+        if note is not None
+        else ""
+    )
+
+    if len(cleaned_note) > 64:
+        raise ValueError(
+            "Session note cannot exceed 64 characters."
+        )
+
     daily_task = work_session.daily_task
     task = daily_task.task
-
-    now = datetime.utcnow()
 
     planned_end_at = (
         work_session.started_at
@@ -147,21 +188,26 @@ def commit_work_session(
         )
     )
 
-    if now >= planned_end_at:
-        ended_at = planned_end_at
-        actual_duration_seconds = (
-            work_session.planned_duration_seconds
-        )
-    else:
-        ended_at = now
-        actual_duration_seconds = max(
-            0,
-            int(
-                (
-                    now - work_session.started_at
-                ).total_seconds()
-            ),
-        )
+    recorded_end_at = (
+        work_session.ended_at
+        if work_session.ended_at is not None
+        else datetime.utcnow()
+    )
+
+    ended_at = min(
+        recorded_end_at,
+        planned_end_at,
+    )
+
+    actual_duration_seconds = max(
+        0,
+        int(
+            (
+                ended_at
+                - work_session.started_at
+            ).total_seconds()
+        ),
+    )
 
     if outcome == "complete":
         complete_task(
@@ -192,13 +238,6 @@ def commit_work_session(
     work_session.session_state = "completed"
     work_session.outcome = outcome
     work_session.interrupted = interrupted
-
-    cleaned_note = (
-        note.strip()
-        if note is not None
-        else ""
-    )
-
     work_session.note = cleaned_note or None
 
     if outcome in {"complete", "abandoned"}:
