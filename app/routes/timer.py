@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -24,19 +24,35 @@ templates = Jinja2Templates(
     directory="app/templates",
 )
 
+BREAK_DURATION_MINUTES = 5
+
 
 @router.get("/")
 def timer_page(
     request: Request,
+    break_until: int | None = None,
     db: Session = Depends(get_db),
 ):
     selected_date = date.today()
 
     running_session = get_running_session(db)
 
+    active_break_until = None
+
+    if running_session is None and break_until is not None:
+        now_timestamp = int(
+            datetime.now(timezone.utc).timestamp()
+        )
+
+        if break_until > now_timestamp:
+            active_break_until = break_until
+
     next_daily_task = None
 
-    if running_session is None:
+    if (
+        running_session is None
+        and active_break_until is None
+    ):
         next_daily_task = get_next_daily_task(
             db=db,
             target_date=selected_date,
@@ -48,6 +64,7 @@ def timer_page(
         context={
             "selected_date": selected_date,
             "running_session": running_session,
+            "break_until": active_break_until,
             "next_daily_task": next_daily_task,
         },
     )
@@ -111,7 +128,18 @@ def commit_timer_session(
             detail=str(exc),
         )
 
+    break_ends_at = (
+        datetime.now(timezone.utc)
+        + timedelta(
+            minutes=BREAK_DURATION_MINUTES
+        )
+    )
+
+    break_until = int(
+        break_ends_at.timestamp()
+    )
+
     return RedirectResponse(
-        url="/timer/",
+        url=f"/timer/?break_until={break_until}",
         status_code=303,
     )

@@ -8,9 +8,9 @@ Timer | System 1
 
 <section class="timer-page">
 
-    <h2>Focus</h2>
-
     {% if running_session %}
+
+        <h2>Focus</h2>
 
         <div
             id="running-session"
@@ -117,7 +117,36 @@ Timer | System 1
 
         </div>
 
+
+    {% elif break_until %}
+
+        <h2>Break</h2>
+
+        <div
+            id="break-timer"
+            data-break-until="{{ break_until }}"
+        >
+
+            <div id="break-timer-display">
+                --:--
+            </div>
+
+            <p>
+                Step away for a few minutes.
+            </p>
+
+            <p>
+                <a href="/timer/">
+                    Skip break
+                </a>
+            </p>
+
+        </div>
+
+
     {% elif next_daily_task %}
+
+        <h2>Focus</h2>
 
         <h3>
             {{ next_daily_task.task.title }}
@@ -148,7 +177,10 @@ Timer | System 1
 
         </form>
 
+
     {% else %}
+
+        <h2>Focus</h2>
 
         <p>
             There are no planned tasks for today.
@@ -166,6 +198,10 @@ Timer | System 1
 
 {% if running_session %}
     <script src="/static/timer.js"></script>
+{% endif %}
+
+{% if break_until %}
+    <script src="/static/break.js"></script>
 {% endif %}
 
 {% endblock %}

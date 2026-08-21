@@ -24,6 +24,8 @@ if (sessionElement && timerDisplay) {
         startedAt.getTime() +
         (durationSeconds * 1000);
 
+    let timerInterval = null;
+
 
     function updateTimer() {
 
@@ -55,16 +57,20 @@ if (sessionElement && timerDisplay) {
 
         if (remainingSeconds <= 0) {
 
-            completeMessage.hidden = false;
+            if (timerInterval !== null) {
+                clearInterval(timerInterval);
+            }
 
-            clearInterval(timerInterval);
+            if (completeMessage) {
+                completeMessage.hidden = false;
+            }
         }
     }
 
 
     updateTimer();
 
-    const timerInterval =
+    timerInterval =
         setInterval(
             updateTimer,
             1000
