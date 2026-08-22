@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -13,13 +12,10 @@ from app.services.tasks import (
     reopen_task as reopen_task_service,
     update_task_title,
 )
+from app.templating import templates
 
 
 router = APIRouter()
-
-templates = Jinja2Templates(
-    directory="app/templates",
-)
 
 
 def render_task_tree(

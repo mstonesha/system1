@@ -1,11 +1,11 @@
 from logging.config import fileConfig
-import os
 
 from sqlalchemy import create_engine
 from sqlalchemy import pool
 
 from alembic import context
 
+from app.config import get_settings
 from app.database import Base
 from app import models
 
@@ -18,9 +18,9 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return os.environ.get(
-        "DATABASE_URL",
-        config.get_main_option("sqlalchemy.url"),
+    return (
+        get_settings().database_url
+        or config.get_main_option("sqlalchemy.url")
     )
 
 

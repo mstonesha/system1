@@ -1,20 +1,16 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.review import build_daily_review
+from app.templating import templates
 from app.time import today
 
 router = APIRouter(
     prefix="/review",
     tags=["review"],
-)
-
-templates = Jinja2Templates(
-    directory="app/templates",
 )
 
 

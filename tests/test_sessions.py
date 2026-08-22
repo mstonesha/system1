@@ -82,6 +82,22 @@ def test_stuck_and_paused_move_daily_task_to_bottom(
     assert first_daily.state == "planned"
 
 
+def test_start_work_session_uses_configured_focus_duration(
+    db,
+    make_task,
+    monkeypatch,
+):
+    monkeypatch.setenv("FOCUS_SESSION_MINUTES", "40")
+    _plan_task(db, make_task, "Focus", today())
+
+    work_session = start_work_session(
+        db=db,
+        target_date=today(),
+    )
+
+    assert work_session.planned_duration_seconds == 40 * 60
+
+
 @pytest.mark.parametrize(
     "duration_minutes",
     [0, -5],

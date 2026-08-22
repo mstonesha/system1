@@ -1,0 +1,13 @@
+# Test/development dependencies for Akrasia_Zero.
+# Includes runtime requirements from requirements.txt.
+#
+# To update a dependency:
+# 1. Change the pinned version intentionally
+# 2. Rebuild Docker images
+# 3. Run the full test suite:
+#    docker compose --profile test run --rm --build test
+# 4. Commit the new pinned version
+
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1

@@ -1,0 +1,158 @@
+"""Application settings for Akrasia_Zero.
+
+The product name is Akrasia_Zero. Some local database and Docker
+identifiers still use the legacy system1 prefix; that is intentional
+and does not indicate a second application.
+"""
+
+import os
+from dataclasses import dataclass
+
+from sqlalchemy.engine import make_url
+
+
+DEFAULT_APP_NAME = "Akrasia_Zero"
+DEFAULT_DISPLAY_NAME = "Matt Stone"
+DEFAULT_APP_TIMEZONE = "Europe/London"
+DEFAULT_FOCUS_SESSION_MINUTES = 25
+DEFAULT_BREAK_DURATION_MINUTES = 5
+DEFAULT_LOG_LEVEL = "INFO"
+ALLOWED_LOG_LEVELS = frozenset(
+    {
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    }
+)
+# Legacy local database name, not the product name.
+TEST_DATABASE_NAME = "system1_test"
+
+
+def _optional_env(name: str) -> str | None:
+    value = os.environ.get(name)
+
+    if value is None:
+        return None
+
+    stripped = value.strip()
+
+    if stripped == "":
+        return None
+
+    return stripped
+
+
+def _env_str(name: str, default: str) -> str:
+    value = _optional_env(name)
+
+    if value is None:
+        return default
+
+    return value
+
+
+def _env_int(name: str, default: int) -> int:
+    value = _optional_env(name)
+
+    if value is None:
+        return default
+
+    return int(value)
+
+
+def _env_log_level() -> str:
+    value = _env_str(
+        "LOG_LEVEL",
+        DEFAULT_LOG_LEVEL,
+    ).upper()
+
+    if value not in ALLOWED_LOG_LEVELS:
+        allowed = ", ".join(
+            sorted(ALLOWED_LOG_LEVELS)
+        )
+        raise ValueError(
+            "Invalid LOG_LEVEL "
+            f"{value!r}. Expected one of {allowed}."
+        )
+
+    return value
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_name: str
+    display_name: str
+    timezone: str
+    focus_session_minutes: int
+    break_duration_minutes: int
+    log_level: str
+    database_url: str | None
+
+    @property
+    def break_duration_seconds(self) -> int:
+        return self.break_duration_minutes * 60
+
+    @property
+    def focus_session_seconds(self) -> int:
+        return self.focus_session_minutes * 60
+
+    def require_database_url(self) -> str:
+        if not self.database_url:
+            raise RuntimeError(
+                "DATABASE_URL is not set."
+            )
+
+        return self.database_url
+
+
+def get_settings() -> Settings:
+    return Settings(
+        app_name=_env_str(
+            "APP_NAME",
+            DEFAULT_APP_NAME,
+        ),
+        display_name=_env_str(
+            "DISPLAY_NAME",
+            DEFAULT_DISPLAY_NAME,
+        ),
+        timezone=_env_str(
+            "APP_TIMEZONE",
+            DEFAULT_APP_TIMEZONE,
+        ),
+        focus_session_minutes=_env_int(
+            "FOCUS_SESSION_MINUTES",
+            DEFAULT_FOCUS_SESSION_MINUTES,
+        ),
+        break_duration_minutes=_env_int(
+            "BREAK_DURATION_MINUTES",
+            DEFAULT_BREAK_DURATION_MINUTES,
+        ),
+        log_level=_env_log_level(),
+        database_url=_optional_env("DATABASE_URL"),
+    )
+
+
+def require_test_database_url(
+    url: str | None = None,
+) -> str:
+    if url is None:
+        url = get_settings().database_url
+
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Run the suite with: "
+            "docker compose --profile test run --rm --build test"
+        )
+
+    database_name = make_url(url).database
+
+    if database_name != TEST_DATABASE_NAME:
+        raise RuntimeError(
+            "Refusing to run tests against "
+            f"database {database_name!r}. "
+            f"Expected {TEST_DATABASE_NAME}."
+        )
+
+    return url

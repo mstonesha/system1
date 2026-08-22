@@ -11,7 +11,7 @@
 
     <title>
         {% block title %}
-        Akrasia_Zero
+        {{ settings.app_name }}
         {% endblock %}
     </title>
 
@@ -51,11 +51,11 @@
             <div class="identity">
 
                 <div class="app-name">
-                    Akrasia_Zero:
+                    {{ settings.app_name }}:
                 </div>
 
                 <div class="user-context">
-                    Matt Stone
+                    {{ settings.display_name }}
                     <span aria-hidden="true">·</span>
 
                     {% if selected_date is defined %}

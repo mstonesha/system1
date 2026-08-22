@@ -1,18 +1,13 @@
-import os
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from app.config import get_settings
+
 UTC = timezone.utc
-DEFAULT_APP_TIMEZONE = "Europe/London"
 
 
 def app_timezone() -> ZoneInfo:
-    return ZoneInfo(
-        os.environ.get(
-            "APP_TIMEZONE",
-            DEFAULT_APP_TIMEZONE,
-        )
-    )
+    return ZoneInfo(get_settings().timezone)
 
 
 def utc_now() -> datetime:

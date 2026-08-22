@@ -27,7 +27,7 @@ def running_session(
 @router.post("/start")
 def start_session(
     target_date: date | None = None,
-    duration_minutes: int = 25,
+    duration_minutes: int | None = None,
     db: Session = Depends(get_db),
 ):
     selected_date = target_date or today()

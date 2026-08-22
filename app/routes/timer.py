@@ -2,9 +2,9 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import WorkSession
 from app.services.sessions import (
@@ -14,6 +14,7 @@ from app.services.sessions import (
     get_running_session,
     start_work_session,
 )
+from app.templating import templates
 from app.time import today, utc_now
 
 
@@ -21,12 +22,6 @@ router = APIRouter(
     prefix="/timer",
     tags=["timer"],
 )
-
-templates = Jinja2Templates(
-    directory="app/templates",
-)
-
-BREAK_DURATION_MINUTES = 5
 
 
 @router.get("/")
@@ -104,7 +99,7 @@ def timer_page(
 
 @router.post("/start")
 def start_timer(
-    duration_minutes: int = Form(25),
+    duration_minutes: int | None = Form(None),
     db: Session = Depends(get_db),
 ):
     selected_date = today()
@@ -196,7 +191,7 @@ def commit_timer_session(
     break_ends_at = (
         utc_now()
         + timedelta(
-            minutes=BREAK_DURATION_MINUTES
+            minutes=get_settings().break_duration_minutes
         )
     )
 

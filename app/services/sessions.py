@@ -1,13 +1,18 @@
+import logging
 from datetime import date, timedelta
 
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import DailyTask, WorkSession
 from app.services.tasks import mark_task_cancelled, mark_task_completed
 from app.services.today import get_daily_tasks_for_date
 from app.time import utc_now
+
+
+logger = logging.getLogger(__name__)
 
 
 ALLOWED_OUTCOMES = {
@@ -48,8 +53,11 @@ def get_next_daily_task(
 def start_work_session(
     db: Session,
     target_date: date,
-    duration_minutes: int = 25,
+    duration_minutes: int | None = None,
 ) -> WorkSession:
+    if duration_minutes is None:
+        duration_minutes = get_settings().focus_session_minutes
+
     if duration_minutes < 1:
         raise ValueError(
             "Session duration must be at least 1 minute."
@@ -87,6 +95,12 @@ def start_work_session(
         db.rollback()
 
         if isinstance(exc.orig, UniqueViolation):
+            logger.warning(
+                "Concurrent work-session start rejected "
+                "by unique constraint "
+                "(daily_task_id=%s)",
+                daily_task.id,
+            )
             raise ValueError(
                 "A work session is already running."
             ) from exc

@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 
 from psycopg.errors import UniqueViolation
@@ -5,6 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import DailyTask, Task, WorkSession
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_daily_tasks_for_date(
@@ -126,6 +130,12 @@ def add_task_to_day(
         db.rollback()
 
         if isinstance(exc.orig, UniqueViolation):
+            logger.warning(
+                "Concurrent add-to-day rejected "
+                "by unique constraint "
+                "(task_id=%s)",
+                task.id,
+            )
             raise ValueError(
                 "This task is already on the selected day."
             ) from exc

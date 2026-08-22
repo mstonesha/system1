@@ -1,41 +1,19 @@
-import os
 from collections.abc import Callable, Generator
 from datetime import date, datetime
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import require_test_database_url
 from app.time import today
 
-TEST_DATABASE_NAME = "system1_test"
+TEST_DATABASE_URL = require_test_database_url()
 
-
-def _test_database_url() -> str:
-    url = os.environ.get("DATABASE_URL")
-
-    if not url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Run the suite with: "
-            "docker compose --profile test run --rm --build test"
-        )
-
-    database_name = make_url(url).database
-
-    if database_name != TEST_DATABASE_NAME:
-        raise RuntimeError(
-            "Refusing to run tests against "
-            f"database {database_name!r}. "
-            f"Expected {TEST_DATABASE_NAME}."
-        )
-
-    return url
-
-
-TEST_DATABASE_URL = _test_database_url()
-
-from app.database import Base
+from app.database import Base, get_db
+from app.main import app
 from app.models import DailyTask, Task, WorkSession
 
 
@@ -74,6 +52,19 @@ def db(engine: Engine) -> Generator[Session, None, None]:
                     "RESTART IDENTITY CASCADE"
                 )
             )
+
+
+@pytest.fixture
+def client(db):
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

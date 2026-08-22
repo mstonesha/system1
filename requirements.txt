@@ -1,10 +1,18 @@
-fastapi
-uvicorn[standard]
-jinja2
-sqlalchemy
-psycopg[binary]
-alembic
-python-multipart
-pytest
-httpx
-tzdata
+# Runtime/application dependencies for Akrasia_Zero.
+# Pin direct dependencies only; do not upgrade casually.
+#
+# To update a dependency:
+# 1. Change the pinned version below intentionally
+# 2. Rebuild Docker images
+# 3. Run the full test suite:
+#    docker compose --profile test run --rm --build test
+# 4. Commit the new pinned version
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+jinja2==3.1.6
+sqlalchemy==2.0.52
+psycopg[binary]==3.3.4
+alembic==1.19.1
+python-multipart==0.0.32
+tzdata==2026.3

@@ -1,7 +1,8 @@
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from app.time import local_day_bounds_utc
+from app.time import app_timezone, local_day_bounds_utc
 
 LONDON = ZoneInfo("Europe/London")
 UTC = timezone.utc
@@ -50,3 +51,33 @@ def test_fall_back_local_day_is_twenty_five_hours():
     assert start == datetime(2026, 10, 24, 23, 0, tzinfo=UTC)
     assert end == datetime(2026, 10, 26, 0, 0, tzinfo=UTC)
     assert end - start == timedelta(hours=25)
+
+
+def test_app_timezone_defaults_to_europe_london(monkeypatch):
+    monkeypatch.delenv("APP_TIMEZONE", raising=False)
+
+    assert str(app_timezone()) == "Europe/London"
+
+
+def test_app_timezone_uses_environment_override(monkeypatch):
+    monkeypatch.setenv("APP_TIMEZONE", "America/New_York")
+
+    assert str(app_timezone()) == "America/New_York"
+
+
+def test_timezone_helpers_use_configured_settings(monkeypatch):
+    monkeypatch.setattr(
+        "app.time.get_settings",
+        lambda: SimpleNamespace(timezone="America/New_York"),
+    )
+
+    assert str(app_timezone()) == "America/New_York"
+
+    start, end = local_day_bounds_utc(date(2026, 1, 15))
+
+    assert start == datetime(
+        2026, 1, 15, 5, 0, tzinfo=UTC
+    )
+    assert end == datetime(
+        2026, 1, 16, 5, 0, tzinfo=UTC
+    )

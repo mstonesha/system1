@@ -8,7 +8,12 @@ services:
       - .:/app
     environment:
       DATABASE_URL: postgresql+psycopg://system1:system1@db:5432/system1
+      APP_NAME: Akrasia_Zero
+      DISPLAY_NAME: Matt Stone
       APP_TIMEZONE: Europe/London
+      FOCUS_SESSION_MINUTES: "25"
+      BREAK_DURATION_MINUTES: "5"
+      LOG_LEVEL: INFO
     depends_on:
       db:
         condition: service_healthy
@@ -46,13 +51,21 @@ services:
       - test
 
   test:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_DEV: "true"
     container_name: system1-test
     volumes:
       - .:/app
     environment:
       DATABASE_URL: postgresql+psycopg://system1:system1@db-test:5432/system1_test
+      APP_NAME: Akrasia_Zero
+      DISPLAY_NAME: Matt Stone
       APP_TIMEZONE: Europe/London
+      FOCUS_SESSION_MINUTES: "25"
+      BREAK_DURATION_MINUTES: "5"
+      LOG_LEVEL: INFO
     depends_on:
       db-test:
         condition: service_healthy

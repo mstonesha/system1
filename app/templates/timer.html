@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-Session Timer | Akrasia_Zero
+Session Timer | {{ settings.app_name }}
 {% endblock %}
 
 {% block timer_nav_class %}active{% endblock %}
@@ -244,7 +244,7 @@ Session Timer | Akrasia_Zero
             id="break-timer"
             class="focus-instrument break-state"
             data-break-until="{{ break_until }}"
-            data-break-duration-seconds="300"
+            data-break-duration-seconds="{{ settings.break_duration_seconds }}"
         >
 
             <header class="focus-header">
@@ -315,7 +315,7 @@ Session Timer | Akrasia_Zero
                     id="ready-timer-display"
                     class="focus-clock"
                 >
-                    25:00
+                    {{ "%02d"|format(settings.focus_session_minutes) }}:00
                 </div>
 
                 <div
@@ -350,7 +350,7 @@ Session Timer | Akrasia_Zero
                             type="number"
                             name="duration_minutes"
                             min="1"
-                            value="25"
+                            value="{{ settings.focus_session_minutes }}"
                             required
                             oninput="
                                 const display =
