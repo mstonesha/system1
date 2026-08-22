@@ -1,7 +1,8 @@
-"""Dataset A — temporal_patterns.
+"""Dataset C — task_age_abandonment.
 
-Morning sessions are generally more successful, except Monday
-mornings, which are a strong negative exception.
+Tasks that stay unresolved longer after first appearing on Today
+are progressively more likely to be abandoned. Age is measured from
+the first DailyTask date, not Task.created_at.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
@@ -17,9 +18,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models import DailyTask, Task, WorkSession
+from evaluation.age import AGE_BUCKETS
 from evaluation.catalog import (
-    CATEGORIES,
-    TITLE_STEMS,
+    DEPENDENCY_CATEGORIES,
+    DEPENDENCY_TITLE_STEMS,
     format_task_title,
 )
 from evaluation.clock import (
@@ -33,48 +35,47 @@ from evaluation.clock import (
 from evaluation.result import GenerationResult
 
 
-SCENARIO_NAME = "temporal_patterns"
-DEFAULT_SEED = 20250106
-START_DATE = date(2025, 1, 6)
-WORKING_WEEKS = 12
-INTERRUPTION_RATE = 0.14
-
-POSITIVE_OUTCOMES = frozenset({"progress", "complete"})
-NEGATIVE_OUTCOMES = frozenset({"stuck", "paused", "abandoned"})
-
-# Tuesday–Friday positive-outcome rates by local day-part.
-TUE_FRI_POSITIVE_RATE = {
-    "early_morning": 0.70,
-    "morning": 0.78,
-    "early_afternoon": 0.58,
-    "late_afternoon": 0.48,
-    "evening": 0.55,
-}
-
-# Monday is slightly weaker overall, with a sharp morning exception.
-MONDAY_POSITIVE_RATE = {
-    "early_morning": 0.64,
-    "morning": 0.38,
-    "early_afternoon": 0.54,
-    "late_afternoon": 0.44,
-    "evening": 0.50,
-}
-
-PROGRESS_GIVEN_POSITIVE = 0.70
-NEGATIVE_OUTCOME_WEIGHTS = (
-    ("stuck", 0.55),
-    ("paused", 0.35),
-    ("abandoned", 0.10),
+SCENARIO_NAME = "task_age_abandonment"
+DEFAULT_SEED = 20250901
+START_DATE = date(2025, 9, 1)
+WORKING_WEEKS = 24
+INTERRUPTION_RATE = 0.16
+INTERMEDIATE_OUTCOME_WEIGHTS = (
+    ("progress", 0.62),
+    ("stuck", 0.22),
+    ("paused", 0.16),
 )
+ABANDON_RATE_BY_BUCKET = {
+    "0-2": 0.07,
+    "3-7": 0.10,
+    "8-14": 0.175,
+    "15-30": 0.33,
+    "31+": 0.55,
+}
+BUCKET_QUOTAS = {
+    "0-2": 38,
+    "3-7": 42,
+    "8-14": 42,
+    "15-30": 38,
+    "31+": 32,
+}
+
+
+@dataclass
+class LeafSpec:
+    category: str
+    first_date: date
+    last_date: date
+    work_dates: list[date]
+    fate: str
+    backlog_days: int
+    parent_key: int | None = None
 
 
 @dataclass
 class TaskPlan:
+    spec: LeafSpec
     task: Task
-    category: str
-    is_parent: bool
-    remaining_days: int
-    days_worked: int = 0
     ended: bool = False
 
 
@@ -89,7 +90,7 @@ class SessionPlan:
     interrupted: bool
 
 
-def generate_temporal_patterns(
+def generate_task_age_abandonment(
     db: Session,
     *,
     seed: int = DEFAULT_SEED,
@@ -98,7 +99,7 @@ def generate_temporal_patterns(
     rng = Random(seed)
     zone = ZoneInfo(timezone_name)
     days = working_days(START_DATE, WORKING_WEEKS)
-    generator = _TemporalPatternGenerator(
+    generator = _TaskAgeAbandonmentGenerator(
         db=db,
         rng=rng,
         zone=zone,
@@ -117,7 +118,7 @@ def generate_temporal_patterns(
     )
 
 
-class _TemporalPatternGenerator:
+class _TaskAgeAbandonmentGenerator:
     def __init__(
         self,
         db: Session,
@@ -130,74 +131,169 @@ class _TemporalPatternGenerator:
         self.zone = zone
         self.days = days
         self.plans: dict[int, TaskPlan] = {}
+        self.by_date: dict[date, list[TaskPlan]] = {
+            day: [] for day in days
+        }
         self.sort_order = 0
         self.category_bag: list[str] = []
-        self.stem_index = {category: 0 for category in CATEGORIES}
+        self.stem_index = {
+            category: 0 for category in DEPENDENCY_CATEGORIES
+        }
         self.used_titles: set[str] = set()
+        self.parent_ids: list[int] = []
 
     def run(self) -> None:
-        self._seed_initial_tasks()
-        activity = self._activity_by_day()
+        self._create_parents()
+        specs = self._plan_leaves()
+        for spec in specs:
+            plan = self._create_leaf(spec)
+            for work_date in spec.work_dates:
+                self.by_date[work_date].append(plan)
 
         for day in self.days:
-            self._spawn_until_pool_filled(created_on=day)
-            level = activity[day]
-            if level == "empty":
+            scheduled = self.by_date[day]
+            if not scheduled:
                 continue
-            self._generate_day(day, quiet=(level == "quiet"))
+            self._generate_day(day, scheduled)
 
         self.db.flush()
 
-    def _activity_by_day(self) -> dict[date, str]:
-        n_days = len(self.days)
-        n_empty = self.rng.randint(2, 4)
-        n_quiet = self.rng.randint(2, 4)
-        labels = (
-            ["empty"] * n_empty
-            + ["quiet"] * n_quiet
-            + ["normal"] * (n_days - n_empty - n_quiet)
-        )
-        self.rng.shuffle(labels)
-        return dict(zip(self.days, labels))
-
-    def _seed_initial_tasks(self) -> None:
+    def _create_parents(self) -> None:
         for _ in range(12):
-            created_on = START_DATE - timedelta(
-                days=self.rng.randint(1, 12)
+            created_on = self.rng.choice(self.days[:40])
+            task = self._make_task(
+                category=self._next_category(),
+                created_on=created_on,
+                backlog_days=self._sample_backlog_days(),
+                parent_id=None,
             )
-            self._spawn_task(created_on=created_on)
+            self.parent_ids.append(task.id)
 
-    def _spawn_until_pool_filled(self, created_on: date) -> None:
-        target = self.rng.randint(10, 14)
-        while len(self._active_leaves()) < target:
-            self._spawn_task(created_on=created_on)
+    def _plan_leaves(self) -> list[LeafSpec]:
+        specs: list[LeafSpec] = []
+        for bucket, quota in BUCKET_QUOTAS.items():
+            bucket_specs: list[LeafSpec] = []
+            for _ in range(quota):
+                spec = self._plan_one_leaf(bucket)
+                if spec is not None:
+                    bucket_specs.append(spec)
+            self._assign_bucket_fates(bucket, bucket_specs)
+            specs.extend(bucket_specs)
+        self.rng.shuffle(specs)
+        return specs
 
-    def _active_leaves(self) -> list[TaskPlan]:
-        return [
-            plan
-            for plan in self.plans.values()
-            if not plan.ended
-            and not plan.is_parent
-            and plan.task.status == "active"
+    def _assign_bucket_fates(
+        self,
+        bucket: str,
+        bucket_specs: list[LeafSpec],
+    ) -> None:
+        if not bucket_specs:
+            return
+        target = ABANDON_RATE_BY_BUCKET[bucket]
+        abandon_n = round(len(bucket_specs) * target)
+        abandon_n = min(abandon_n, len(bucket_specs) - 1)
+        if target > 0:
+            abandon_n = max(abandon_n, 1)
+        self.rng.shuffle(bucket_specs)
+        for index, spec in enumerate(bucket_specs):
+            spec.fate = "abandoned" if index < abandon_n else "complete"
+
+    def _plan_one_leaf(self, bucket: str) -> LeafSpec | None:
+        first, last = self._pick_span(bucket)
+        if first is None or last is None:
+            return None
+        work_dates = self._sample_work_dates(bucket, first, last)
+        parent_key = None
+        if self.parent_ids and self.rng.random() < 0.18:
+            parent_key = self.rng.choice(self.parent_ids)
+        return LeafSpec(
+            category=self._next_category(),
+            first_date=first,
+            last_date=last,
+            work_dates=work_dates,
+            fate="complete",
+            backlog_days=self._sample_backlog_days(),
+            parent_key=parent_key,
+        )
+
+    def _pick_span(
+        self,
+        bucket: str,
+    ) -> tuple[date | None, date | None]:
+        low, high = {
+            name: (lo, hi) for name, lo, hi in AGE_BUCKETS
+        }[bucket]
+        if high is None:
+            high = 52
+        first_pool = self.days
+        if bucket == "31+":
+            cutoff = self.days[int(len(self.days) * 0.62)]
+            first_pool = [day for day in self.days if day <= cutoff]
+        if not first_pool:
+            return None, None
+        for _ in range(80):
+            first = self.rng.choice(first_pool)
+            last_weekday = self.rng.randint(0, 4)
+            candidates = [
+                last
+                for last in self.days
+                if last.weekday() == last_weekday
+                and low <= (last - first).days <= high
+            ]
+            if candidates:
+                return first, self.rng.choice(candidates)
+        fallback = [
+            (first, last)
+            for first in first_pool
+            for last in self.days
+            if low <= (last - first).days <= high
         ]
+        if not fallback:
+            return None, None
+        return self.rng.choice(fallback)
 
-    def _active_parents(self) -> list[TaskPlan]:
-        return [
-            plan
-            for plan in self.plans.values()
-            if plan.is_parent
-            and not plan.ended
-            and plan.task.status == "active"
-        ]
+    def _sample_work_dates(
+        self,
+        bucket: str,
+        first: date,
+        last: date,
+    ) -> list[date]:
+        if first == last:
+            return [first]
+        interior = [day for day in self.days if first < day < last]
+        extras_by_bucket = {
+            "0-2": (0, 1),
+            "3-7": (1, 2),
+            "8-14": (2, 4),
+            "15-30": (3, 6),
+            "31+": (4, 8),
+        }
+        low_k, high_k = extras_by_bucket[bucket]
+        if not interior:
+            return [first, last]
+        k = self.rng.randint(low_k, high_k)
+        k = min(k, len(interior))
+        extra = self.rng.sample(interior, k) if k else []
+        return sorted({first, last, *extra})
+
+    def _sample_backlog_days(self) -> int:
+        roll = self.rng.random()
+        if roll < 0.22:
+            return 0
+        if roll < 0.62:
+            return self.rng.randint(1, 7)
+        if roll < 0.90:
+            return self.rng.randint(8, 30)
+        return self.rng.randint(31, 55)
 
     def _next_category(self) -> str:
         if not self.category_bag:
-            self.category_bag = list(CATEGORIES)
+            self.category_bag = list(DEPENDENCY_CATEGORIES)
             self.rng.shuffle(self.category_bag)
         return self.category_bag.pop()
 
     def _next_title(self, category: str) -> str:
-        stems = TITLE_STEMS[category]
+        stems = DEPENDENCY_TITLE_STEMS[category]
         stem = stems[self.stem_index[category] % len(stems)]
         self.stem_index[category] += 1
         title = format_task_title(category, stem)
@@ -212,34 +308,31 @@ class _TemporalPatternGenerator:
         self.used_titles.add(title)
         return title
 
-    def _spawn_task(self, created_on: date) -> TaskPlan:
-        category = self._next_category()
-        is_parent = self.rng.random() < 0.12
-        parent_id = None
-
-        if not is_parent and self.rng.random() < 0.22:
-            parents = self._active_parents()
-            if parents:
-                parent_id = self.rng.choice(parents).task.id
-
+    def _make_task(
+        self,
+        *,
+        category: str,
+        created_on: date,
+        backlog_days: int,
+        parent_id: int | None,
+    ) -> Task:
+        created_date = created_on - timedelta(days=backlog_days)
         created_at = local_to_utc(
             combine_local(
-                created_on,
+                created_date,
                 time(
-                    self.rng.randint(7, 18),
+                    self.rng.randint(7, 11),
                     self.rng.randint(0, 59),
                     self.rng.randint(0, 59),
                 ),
                 self.zone,
             )
         )
-
         due_date = None
-        if self.rng.random() < 0.28:
+        if self.rng.random() < 0.24:
             due_date = created_on + timedelta(
-                days=self.rng.randint(3, 21)
+                days=self.rng.randint(5, 28)
             )
-
         task = Task(
             title=self._next_title(category),
             description=None,
@@ -257,37 +350,55 @@ class _TemporalPatternGenerator:
         self.sort_order += 1
         self.db.add(task)
         self.db.flush()
+        return task
 
-        plan = TaskPlan(
-            task=task,
-            category=category,
-            is_parent=is_parent,
-            remaining_days=self.rng.randint(1, 5),
+    def _create_leaf(self, spec: LeafSpec) -> TaskPlan:
+        task = self._make_task(
+            category=spec.category,
+            created_on=spec.first_date,
+            backlog_days=spec.backlog_days,
+            parent_id=spec.parent_key,
         )
+        plan = TaskPlan(spec=spec, task=task)
         self.plans[task.id] = plan
         return plan
 
-    def _generate_day(self, day: date, *, quiet: bool) -> None:
-        leaves = self._active_leaves()
-        if not leaves:
-            return
+    def _generate_day(
+        self,
+        day: date,
+        scheduled: list[TaskPlan],
+    ) -> None:
+        required = [
+            plan
+            for plan in scheduled
+            if day in {plan.spec.first_date, plan.spec.last_date}
+        ]
+        optional = [
+            plan for plan in scheduled if plan not in required
+        ]
+        self.rng.shuffle(optional)
 
-        if quiet:
-            n_daily = min(len(leaves), self.rng.randint(1, 2))
-            n_sessions = self.rng.randint(1, 3)
-        else:
-            n_daily = min(len(leaves), self.rng.randint(4, 7))
-            n_sessions = self.rng.randint(8, 12)
+        quiet = self.rng.random() < 0.04
+        n_sessions = (
+            self.rng.randint(3, 5)
+            if quiet
+            else self.rng.randint(8, 12)
+        )
+        capacity = min(7, max(len(required), n_sessions))
+        chosen = list(required)
+        for plan in optional:
+            if len(chosen) >= capacity:
+                break
+            chosen.append(plan)
+        if len(chosen) > n_sessions:
+            n_sessions = len(chosen)
 
-        chosen = self.rng.sample(leaves, k=n_daily)
-        self.rng.shuffle(chosen)
         daily_rows: list[DailyTask] = []
-
         for index, plan in enumerate(chosen):
             created_at = local_to_utc(
                 combine_local(
                     day,
-                    time(5, 30 + index, self.rng.randint(0, 59)),
+                    time(5, 20 + index, self.rng.randint(0, 59)),
                     self.zone,
                 )
             )
@@ -305,17 +416,22 @@ class _TemporalPatternGenerator:
             daily_rows.append(daily)
 
         self.db.flush()
-
-        session_plans = self._plan_sessions(day, n_sessions)
+        session_plans = self._plan_session_times(day, n_sessions)
         holders = self._assign_sessions(daily_rows, session_plans)
 
         for daily, session_plan in holders:
+            session_plan.interrupted = (
+                self.rng.random() < INTERRUPTION_RATE
+            )
+            session_plan.outcome = self._weighted_choice(
+                dict(INTERMEDIATE_OUTCOME_WEIGHTS)
+            )
             self._insert_session(daily, session_plan)
 
         self.db.flush()
-        self._apply_day_endings(chosen, daily_rows)
+        self._apply_terminals(day, chosen, daily_rows)
 
-    def _plan_sessions(
+    def _plan_session_times(
         self,
         day: date,
         n_sessions: int,
@@ -329,8 +445,6 @@ class _TemporalPatternGenerator:
             grouped.setdefault(part, []).append(index)
 
         slots: list[SessionPlan | None] = [None] * n_sessions
-        weekday = day.weekday()
-
         for part, indexes in grouped.items():
             start_bound, end_bound = DAY_PART_BOUNDS[part]
             start_minutes = (
@@ -339,7 +453,6 @@ class _TemporalPatternGenerator:
             end_minutes = end_bound.hour * 60 + end_bound.minute
             span = end_minutes - start_minutes
             slot_span = span / len(indexes)
-
             for offset, index in enumerate(indexes):
                 slot_start = start_minutes + int(offset * slot_span)
                 jitter_cap = max(1, int(slot_span) - 8)
@@ -362,17 +475,15 @@ class _TemporalPatternGenerator:
                     8 * 60,
                     int(planned * self.rng.uniform(0.55, 1.0)),
                 )
-                ended_local = started_local + timedelta(
-                    seconds=actual
-                )
                 slots[index] = SessionPlan(
                     day_part=part,
                     started_at_local=started_local,
-                    ended_at_local=ended_local,
+                    ended_at_local=started_local
+                    + timedelta(seconds=actual),
                     planned_duration_seconds=planned,
                     actual_duration_seconds=actual,
                     outcome="progress",
-                    interrupted=self.rng.random() < INTERRUPTION_RATE,
+                    interrupted=False,
                 )
 
         planned_sessions = [slot for slot in slots if slot is not None]
@@ -381,10 +492,6 @@ class _TemporalPatternGenerator:
         for session in planned_sessions:
             session.day_part = classify_day_part(
                 session.started_at_local
-            )
-            session.outcome = self._sample_outcome(
-                weekday,
-                session.day_part,
             )
         return planned_sessions
 
@@ -407,9 +514,7 @@ class _TemporalPatternGenerator:
                 session.started_at_local = latest_start
             session.ended_at_local = (
                 session.started_at_local
-                + timedelta(
-                    seconds=session.actual_duration_seconds
-                )
+                + timedelta(seconds=session.actual_duration_seconds)
             )
             previous_end = session.ended_at_local
 
@@ -456,18 +561,18 @@ class _TemporalPatternGenerator:
         self.db.add(work_session)
         return work_session
 
-    def _apply_day_endings(
+    def _apply_terminals(
         self,
+        day: date,
         chosen: list[TaskPlan],
         daily_rows: list[DailyTask],
     ) -> None:
         daily_by_task = {
             daily.task_id: daily for daily in daily_rows
         }
-
         for plan in chosen:
-            plan.days_worked += 1
-            plan.remaining_days -= 1
+            if plan.spec.last_date != day or plan.ended:
+                continue
             daily = daily_by_task[plan.task.id]
             sessions = (
                 self.db.query(WorkSession)
@@ -477,74 +582,21 @@ class _TemporalPatternGenerator:
             )
             if not sessions:
                 continue
-
             last = sessions[-1]
             for session in sessions[:-1]:
-                if session.outcome == "complete":
+                if session.outcome in {"complete", "abandoned"}:
                     session.outcome = "progress"
-                elif session.outcome == "abandoned":
-                    session.outcome = "stuck"
-
-            # Completing a parent while children are active is invalid.
-            if plan.is_parent:
-                if last.outcome == "complete":
-                    last.outcome = "progress"
-                elif last.outcome == "abandoned":
-                    last.outcome = "stuck"
-                continue
-
-            # Keep most tasks alive past the first day so some span dates.
-            if plan.days_worked == 1:
-                if last.outcome == "complete":
-                    last.outcome = "progress"
-                if last.outcome == "abandoned":
-                    self._abandon_task(plan, daily, last)
-                elif plan.remaining_days <= 0:
-                    plan.remaining_days = 1
-                continue
-
-            if last.outcome == "complete":
-                self._complete_task(plan, daily, last)
-            elif last.outcome == "abandoned":
-                self._abandon_task(plan, daily, last)
-
-    def _complete_task(
-        self,
-        plan: TaskPlan,
-        daily: DailyTask,
-        session: WorkSession,
-    ) -> None:
-        plan.task.status = "completed"
-        plan.task.completed_at = session.ended_at
-        daily.state = "completed"
-        plan.ended = True
-
-    def _abandon_task(
-        self,
-        plan: TaskPlan,
-        daily: DailyTask,
-        session: WorkSession,
-    ) -> None:
-        plan.task.status = "cancelled"
-        plan.task.completed_at = None
-        daily.state = "abandoned"
-        plan.ended = True
-        session.outcome = "abandoned"
-
-    def _sample_outcome(self, weekday: int, day_part: str) -> str:
-        rates = (
-            MONDAY_POSITIVE_RATE
-            if weekday == 0
-            else TUE_FRI_POSITIVE_RATE
-        )
-        positive = self.rng.random() < rates[day_part]
-        if positive:
-            if self.rng.random() < PROGRESS_GIVEN_POSITIVE:
-                return "progress"
-            return "complete"
-        return self._weighted_choice(
-            dict(NEGATIVE_OUTCOME_WEIGHTS)
-        )
+            if plan.spec.fate == "complete":
+                last.outcome = "complete"
+                plan.task.status = "completed"
+                plan.task.completed_at = last.ended_at
+                daily.state = "completed"
+            else:
+                last.outcome = "abandoned"
+                plan.task.status = "cancelled"
+                plan.task.completed_at = None
+                daily.state = "abandoned"
+            plan.ended = True
 
     def _weighted_choice(self, weights: dict[str, float]) -> str:
         draw = self.rng.random()

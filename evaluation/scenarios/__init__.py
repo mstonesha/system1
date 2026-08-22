@@ -1,1 +1,1 @@
-"""Dataset A: planted weekday/day-part outcome patterns."""
+"""Evaluation scenario generators."""

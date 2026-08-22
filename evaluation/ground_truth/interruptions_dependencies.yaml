@@ -1,0 +1,52 @@
+scenario: interruptions_dependencies
+seed: 20250407
+timezone: Europe/London
+date_range:
+  start: "2025-04-07"
+  end: "2025-07-25"
+  working_weeks: 16
+  weekdays: Monday-Friday
+  weekends_excluded: true
+
+purpose: >
+  Test whether an analyst can distinguish a real interruption /
+  outcome association from a separate HR-dependency stuck cluster,
+  without inventing a temporal pattern or claiming that HR work is
+  more interrupted.
+
+notes:
+  - Ground truth is for evaluation operators only.
+  - Do not load this file in the generator's analytical path.
+  - Do not supply this file to an agent under test.
+  - HR waiting language lives only in task titles, not in schema.
+
+tolerances:
+  interruption_rate: "0.15-0.25"
+  uninterrupted_positive_rate: "~0.72"
+  interrupted_positive_rate: "~0.43"
+  hr_stuck_rate: "0.35-0.45"
+  non_hr_stuck_rate: "0.10-0.15"
+  hr_vs_non_hr_interruption_gap: "not material"
+
+expected_patterns:
+  - interrupted_sessions_have_lower_positive_outcome_rate
+  - hr_tasks_have_materially_higher_stuck_rate
+  - hr_interruption_rate_is_not_materially_higher_than_non_hr
+
+expected_non_patterns:
+  - no_meaningful_weekday_effect
+  - no_meaningful_daypart_effect
+  - no_strong_task_age_abandonment_effect
+
+agent_should_be_able_to_say:
+  - interrupted sessions are associated with poorer outcomes
+  - stuck outcomes are disproportionately concentrated in HR-related work
+  - the HR stuck pattern is not explained by a higher interruption rate
+  - HR titles suggest waiting on approvals, decisions, or responses may be relevant
+
+agent_should_not_claim:
+  - interruptions cause poor performance
+  - HR staff cause tasks to fail
+  - every HR task becomes stuck
+  - HR work is more interrupted unless the observed data actually supports that
+  - a temporal pattern exists when differences are only noise

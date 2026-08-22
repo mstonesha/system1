@@ -1,21 +1,18 @@
 import inspect
-import os
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
-from sqlalchemy import create_engine, func, text
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.catalog import parse_task_category
 from evaluation.clock import classify_day_part, working_days
-from evaluation.database import EVAL_DATABASE_NAME, reset_eval_schema
 from evaluation.export import export_evaluation_csv
 from evaluation.generate import main
 from evaluation.scenarios import temporal_patterns as scenario
@@ -25,6 +22,7 @@ from evaluation.scenarios.temporal_patterns import (
     WORKING_WEEKS,
     generate_temporal_patterns,
 )
+from tests.evaluation_helpers import prepared_eval
 
 
 POSITIVE = frozenset({"progress", "complete"})
@@ -44,136 +42,12 @@ IMPORTANT_DAY_PARTS = (
 )
 
 
-def _server_url():
-    return make_url(os.environ["DATABASE_URL"])
-
-
-def _eval_url():
-    return _server_url().set(database=EVAL_DATABASE_NAME)
-
-
-def _admin_engine() -> Engine:
-    return create_engine(
-        _server_url().set(database="postgres"),
-        isolation_level="AUTOCOMMIT",
-    )
-
-
-def _drop_eval_database(admin: Engine) -> None:
-    with admin.connect() as connection:
-        connection.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) "
-                "FROM pg_stat_activity "
-                "WHERE datname = :name "
-                "AND pid <> pg_backend_pid()"
-            ),
-            {"name": EVAL_DATABASE_NAME},
-        )
-        connection.execute(
-            text(
-                f'DROP DATABASE IF EXISTS "{EVAL_DATABASE_NAME}"'
-            )
-        )
-
-
-def _create_eval_database(admin: Engine) -> None:
-    with admin.connect() as connection:
-        connection.execute(
-            text(
-                f'CREATE DATABASE "{EVAL_DATABASE_NAME}"'
-            )
-        )
-
-
-def _snapshot(db: Session) -> tuple:
-    tasks = [
-        (
-            task.title,
-            task.status,
-            task.parent_task_id,
-            task.priority,
-            task.estimated_sessions,
-            (
-                task.completed_at.isoformat()
-                if task.completed_at
-                else None
-            ),
-            task.created_at.isoformat(),
-        )
-        for task in db.query(Task).order_by(Task.id)
-    ]
-    daily_tasks = [
-        (
-            daily.task_id,
-            daily.date.isoformat(),
-            daily.planned_sessions,
-            daily.state,
-            daily.sort_order,
-        )
-        for daily in db.query(DailyTask).order_by(DailyTask.id)
-    ]
-    sessions = [
-        (
-            work.daily_task_id,
-            work.started_at.isoformat(),
-            work.ended_at.isoformat() if work.ended_at else None,
-            work.outcome,
-            work.interrupted,
-            work.session_state,
-            work.actual_duration_seconds,
-        )
-        for work in db.query(WorkSession).order_by(WorkSession.id)
-    ]
-    return (tasks, daily_tasks, sessions)
-
-
-def _generate(engine: Engine, seed: int = DEFAULT_SEED):
-    reset_eval_schema(engine)
-    SessionLocal = sessionmaker(
-        bind=engine,
-        autoflush=False,
-        autocommit=False,
-    )
-    with SessionLocal() as db:
-        result = generate_temporal_patterns(
-            db,
-            seed=seed,
-            timezone_name=get_settings().timezone,
-        )
-        db.commit()
-        snap = _snapshot(db)
-    return result, snap
-
-
 @pytest.fixture(scope="module")
 def generated_eval():
-    admin = _admin_engine()
-    engine = None
-    try:
-        _drop_eval_database(admin)
-        _create_eval_database(admin)
-        engine = create_engine(_eval_url())
-        first, first_snap = _generate(engine)
-        second, second_snap = _generate(engine)
-        SessionLocal = sessionmaker(
-            bind=engine,
-            autoflush=False,
-            autocommit=False,
-        )
-        yield {
-            "engine": engine,
-            "result": second,
-            "first_snap": first_snap,
-            "second_snap": second_snap,
-            "first_result": first,
-            "SessionLocal": SessionLocal,
-        }
-    finally:
-        if engine is not None:
-            engine.dispose()
-        _drop_eval_database(admin)
-        admin.dispose()
+    yield from prepared_eval(
+        generate_temporal_patterns,
+        DEFAULT_SEED,
+    )
 
 
 @pytest.fixture
@@ -235,11 +109,18 @@ def test_ground_truth_matches_generator_constants():
     expected_end = working_days(START_DATE, WORKING_WEEKS)[-1]
     assert payload["date_range"]["end"] == expected_end.isoformat()
     assert payload["date_range"]["working_weeks"] == WORKING_WEEKS
-    assert "mornings_have_highest_positive_outcome_rate_overall" in (
-        payload["expected_patterns"]
+    assert (
+        "morning_hours_have_higher_positive_outcome_rate_than_afternoon_hours"
+        in payload["expected_patterns"]
     )
     assert "monday_morning_is_a_strong_negative_exception" in (
         payload["expected_patterns"]
+    )
+    assert "do_not_infer_early_morning_is_best_from_its_small_sample_alone" in (
+        payload["sample_size_cautions"]
+    )
+    assert "do_not_infer_evening_beats_morning_without_noting_its_small_sample" in (
+        payload["sample_size_cautions"]
     )
 
 
@@ -248,6 +129,7 @@ def test_generator_does_not_load_ground_truth():
     scenario_source = inspect.getsource(scenario)
 
     assert "temporal_patterns.yaml" not in generate_source
+    assert "interruptions_dependencies.yaml" not in generate_source
     assert "temporal_patterns.yaml" not in scenario_source
     assert "yaml.safe_load" not in scenario_source
     assert "yaml.safe_load" not in generate_source

@@ -1,7 +1,8 @@
-"""Dataset A — temporal_patterns.
+"""Dataset B — interruptions_dependencies.
 
-Morning sessions are generally more successful, except Monday
-mornings, which are a strong negative exception.
+Interrupted sessions have poorer outcomes. HR-related work has a
+separate concentration of stuck outcomes. Those two patterns are
+not the same story: HR tasks are not more interrupted.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
@@ -18,8 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.models import DailyTask, Task, WorkSession
 from evaluation.catalog import (
-    CATEGORIES,
-    TITLE_STEMS,
+    DEPENDENCY_CATEGORIES,
+    DEPENDENCY_TITLE_STEMS,
     format_task_title,
 )
 from evaluation.clock import (
@@ -33,38 +34,26 @@ from evaluation.clock import (
 from evaluation.result import GenerationResult
 
 
-SCENARIO_NAME = "temporal_patterns"
-DEFAULT_SEED = 20250106
-START_DATE = date(2025, 1, 6)
-WORKING_WEEKS = 12
-INTERRUPTION_RATE = 0.14
-
-POSITIVE_OUTCOMES = frozenset({"progress", "complete"})
-NEGATIVE_OUTCOMES = frozenset({"stuck", "paused", "abandoned"})
-
-# Tuesday–Friday positive-outcome rates by local day-part.
-TUE_FRI_POSITIVE_RATE = {
-    "early_morning": 0.70,
-    "morning": 0.78,
-    "early_afternoon": 0.58,
-    "late_afternoon": 0.48,
-    "evening": 0.55,
-}
-
-# Monday is slightly weaker overall, with a sharp morning exception.
-MONDAY_POSITIVE_RATE = {
-    "early_morning": 0.64,
-    "morning": 0.38,
-    "early_afternoon": 0.54,
-    "late_afternoon": 0.44,
-    "evening": 0.50,
-}
-
+SCENARIO_NAME = "interruptions_dependencies"
+DEFAULT_SEED = 20250407
+START_DATE = date(2025, 4, 7)
+WORKING_WEEKS = 16
+INTERRUPTION_RATE = 0.20
+HR_STUCK_RATE = 0.40
+# Pre-overlay polarity. An independent HR stuck overlay then pulls
+# overall rates down to about 72% / 43% positive.
+UNINTERRUPTED_POSITIVE_RATE = 0.79
+INTERRUPTED_POSITIVE_RATE = 0.47
 PROGRESS_GIVEN_POSITIVE = 0.70
-NEGATIVE_OUTCOME_WEIGHTS = (
-    ("stuck", 0.55),
-    ("paused", 0.35),
+NON_HR_NEGATIVE_WEIGHTS = (
+    ("stuck", 0.45),
+    ("paused", 0.45),
     ("abandoned", 0.10),
+)
+HR_REMAINING_NEGATIVE_WEIGHTS = (
+    ("paused", 0.80),
+    ("abandoned", 0.12),
+    ("stuck", 0.08),
 )
 
 
@@ -89,7 +78,7 @@ class SessionPlan:
     interrupted: bool
 
 
-def generate_temporal_patterns(
+def generate_interruptions_dependencies(
     db: Session,
     *,
     seed: int = DEFAULT_SEED,
@@ -98,7 +87,7 @@ def generate_temporal_patterns(
     rng = Random(seed)
     zone = ZoneInfo(timezone_name)
     days = working_days(START_DATE, WORKING_WEEKS)
-    generator = _TemporalPatternGenerator(
+    generator = _InterruptionsDependenciesGenerator(
         db=db,
         rng=rng,
         zone=zone,
@@ -117,7 +106,7 @@ def generate_temporal_patterns(
     )
 
 
-class _TemporalPatternGenerator:
+class _InterruptionsDependenciesGenerator:
     def __init__(
         self,
         db: Session,
@@ -132,7 +121,9 @@ class _TemporalPatternGenerator:
         self.plans: dict[int, TaskPlan] = {}
         self.sort_order = 0
         self.category_bag: list[str] = []
-        self.stem_index = {category: 0 for category in CATEGORIES}
+        self.stem_index = {
+            category: 0 for category in DEPENDENCY_CATEGORIES
+        }
         self.used_titles: set[str] = set()
 
     def run(self) -> None:
@@ -161,14 +152,14 @@ class _TemporalPatternGenerator:
         return dict(zip(self.days, labels))
 
     def _seed_initial_tasks(self) -> None:
-        for _ in range(12):
+        for _ in range(14):
             created_on = START_DATE - timedelta(
                 days=self.rng.randint(1, 12)
             )
             self._spawn_task(created_on=created_on)
 
     def _spawn_until_pool_filled(self, created_on: date) -> None:
-        target = self.rng.randint(10, 14)
+        target = self.rng.randint(10, 13)
         while len(self._active_leaves()) < target:
             self._spawn_task(created_on=created_on)
 
@@ -192,12 +183,14 @@ class _TemporalPatternGenerator:
 
     def _next_category(self) -> str:
         if not self.category_bag:
-            self.category_bag = list(CATEGORIES)
+            # Two HR tickets per shuffle so HR is common enough to
+            # inspect, without dominating the mix.
+            self.category_bag = list(DEPENDENCY_CATEGORIES) + ["HR"]
             self.rng.shuffle(self.category_bag)
         return self.category_bag.pop()
 
     def _next_title(self, category: str) -> str:
-        stems = TITLE_STEMS[category]
+        stems = DEPENDENCY_TITLE_STEMS[category]
         stem = stems[self.stem_index[category] % len(stems)]
         self.stem_index[category] += 1
         title = format_task_title(category, stem)
@@ -214,10 +207,10 @@ class _TemporalPatternGenerator:
 
     def _spawn_task(self, created_on: date) -> TaskPlan:
         category = self._next_category()
-        is_parent = self.rng.random() < 0.12
+        is_parent = self.rng.random() < 0.10
         parent_id = None
 
-        if not is_parent and self.rng.random() < 0.22:
+        if not is_parent and self.rng.random() < 0.20:
             parents = self._active_parents()
             if parents:
                 parent_id = self.rng.choice(parents).task.id
@@ -239,6 +232,11 @@ class _TemporalPatternGenerator:
             due_date = created_on + timedelta(
                 days=self.rng.randint(3, 21)
             )
+
+        if category == "HR":
+            remaining_days = self.rng.randint(4, 8)
+        else:
+            remaining_days = self.rng.randint(3, 6)
 
         task = Task(
             title=self._next_title(category),
@@ -262,7 +260,7 @@ class _TemporalPatternGenerator:
             task=task,
             category=category,
             is_parent=is_parent,
-            remaining_days=self.rng.randint(1, 5),
+            remaining_days=remaining_days,
         )
         self.plans[task.id] = plan
         return plan
@@ -306,16 +304,24 @@ class _TemporalPatternGenerator:
 
         self.db.flush()
 
-        session_plans = self._plan_sessions(day, n_sessions)
+        session_plans = self._plan_session_times(day, n_sessions)
         holders = self._assign_sessions(daily_rows, session_plans)
 
         for daily, session_plan in holders:
+            category = self.plans[daily.task_id].category
+            session_plan.interrupted = (
+                self.rng.random() < INTERRUPTION_RATE
+            )
+            session_plan.outcome = self._sample_outcome(
+                interrupted=session_plan.interrupted,
+                category=category,
+            )
             self._insert_session(daily, session_plan)
 
         self.db.flush()
         self._apply_day_endings(chosen, daily_rows)
 
-    def _plan_sessions(
+    def _plan_session_times(
         self,
         day: date,
         n_sessions: int,
@@ -329,7 +335,6 @@ class _TemporalPatternGenerator:
             grouped.setdefault(part, []).append(index)
 
         slots: list[SessionPlan | None] = [None] * n_sessions
-        weekday = day.weekday()
 
         for part, indexes in grouped.items():
             start_bound, end_bound = DAY_PART_BOUNDS[part]
@@ -372,7 +377,7 @@ class _TemporalPatternGenerator:
                     planned_duration_seconds=planned,
                     actual_duration_seconds=actual,
                     outcome="progress",
-                    interrupted=self.rng.random() < INTERRUPTION_RATE,
+                    interrupted=False,
                 )
 
         planned_sessions = [slot for slot in slots if slot is not None]
@@ -381,10 +386,6 @@ class _TemporalPatternGenerator:
         for session in planned_sessions:
             session.day_part = classify_day_part(
                 session.started_at_local
-            )
-            session.outcome = self._sample_outcome(
-                weekday,
-                session.day_part,
             )
         return planned_sessions
 
@@ -485,7 +486,6 @@ class _TemporalPatternGenerator:
                 elif session.outcome == "abandoned":
                     session.outcome = "stuck"
 
-            # Completing a parent while children are active is invalid.
             if plan.is_parent:
                 if last.outcome == "complete":
                     last.outcome = "progress"
@@ -493,7 +493,6 @@ class _TemporalPatternGenerator:
                     last.outcome = "stuck"
                 continue
 
-            # Keep most tasks alive past the first day so some span dates.
             if plan.days_worked == 1:
                 if last.outcome == "complete":
                     last.outcome = "progress"
@@ -507,6 +506,12 @@ class _TemporalPatternGenerator:
                 self._complete_task(plan, daily, last)
             elif last.outcome == "abandoned":
                 self._abandon_task(plan, daily, last)
+            elif (
+                plan.remaining_days <= 0
+                and last.outcome == "progress"
+            ):
+                last.outcome = "complete"
+                self._complete_task(plan, daily, last)
 
     def _complete_task(
         self,
@@ -531,20 +536,30 @@ class _TemporalPatternGenerator:
         plan.ended = True
         session.outcome = "abandoned"
 
-    def _sample_outcome(self, weekday: int, day_part: str) -> str:
-        rates = (
-            MONDAY_POSITIVE_RATE
-            if weekday == 0
-            else TUE_FRI_POSITIVE_RATE
+    def _sample_outcome(
+        self,
+        *,
+        interrupted: bool,
+        category: str,
+    ) -> str:
+        if category == "HR" and self.rng.random() < HR_STUCK_RATE:
+            return "stuck"
+
+        positive_rate = (
+            INTERRUPTED_POSITIVE_RATE
+            if interrupted
+            else UNINTERRUPTED_POSITIVE_RATE
         )
-        positive = self.rng.random() < rates[day_part]
-        if positive:
+        if self.rng.random() < positive_rate:
             if self.rng.random() < PROGRESS_GIVEN_POSITIVE:
                 return "progress"
             return "complete"
-        return self._weighted_choice(
-            dict(NEGATIVE_OUTCOME_WEIGHTS)
-        )
+
+        if category == "HR":
+            return self._weighted_choice(
+                dict(HR_REMAINING_NEGATIVE_WEIGHTS)
+            )
+        return self._weighted_choice(dict(NON_HR_NEGATIVE_WEIGHTS))
 
     def _weighted_choice(self, weights: dict[str, float]) -> str:
         draw = self.rng.random()

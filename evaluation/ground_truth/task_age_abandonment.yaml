@@ -1,0 +1,81 @@
+scenario: task_age_abandonment
+seed: 20250901
+timezone: Europe/London
+date_range:
+  start: "2025-09-01"
+  end: "2026-02-13"
+  working_weeks: 24
+  weekdays: Monday-Friday
+  weekends_excluded: true
+
+purpose: >
+  Test whether an analyst can detect that abandonment becomes more
+  likely as a task stays unresolved after first commitment to Today,
+  and that Task.created_at (backlog-inclusive) is the wrong age.
+
+age_definition:
+  start: first_non_removed_daily_task_date
+  end: terminal_task_outcome_date
+  unit: local_calendar_days
+
+age_buckets:
+  - 0-2
+  - 3-7
+  - 8-14
+  - 15-30
+  - 31+
+
+intended_abandonment_rates:
+  0-2: "0.05-0.08"
+  3-7: "0.08-0.12"
+  8-14: "0.15-0.20"
+  15-30: "0.30-0.35"
+  31+: "0.50-0.60"
+
+tolerances:
+  bucket_terminal_n: ">=20 each"
+  young_0_7_abandonment: "<0.18"
+  old_31_plus_abandonment: ">0.40"
+  old_minus_young_gap: ">=0.28"
+  over_14_minus_young_gap: ">=0.12"
+  execution_gap_stronger_than_created_at_gap: ">=0.06"
+  category_abandonment_spread: "<=0.22"
+  interruption_abandonment_gap: "<=0.15"
+  weekday_abandonment_spread: "<=0.22"
+  planned_session_abandonment_gap: "<=0.15"
+  rates_are_approximate: true
+
+notes:
+  - Ground truth is for evaluation operators only.
+  - Do not load this file in the generator's analytical path.
+  - Do not supply this file to an agent under test.
+  - Age is derived from DailyTask dates; there is no age column.
+  - Backlog delays before first DailyTask are independent of fate.
+  - Bucket fates are shuffled quotas near the intended rates, not a
+    deterministic age threshold.
+
+expected_patterns:
+  - abandonment_probability_rises_with_execution_age
+  - tasks_over_14_days_show_materially_higher_abandonment_than_tasks_under_8_days
+  - tasks_31_plus_days_have_the_highest_abandonment_rate
+  - first_today_commitment_is_more_informative_than_task_created_at
+
+expected_non_patterns:
+  - no_meaningful_weekday_effect
+  - no_meaningful_daypart_effect
+  - no_meaningful_interruption_effect
+  - no_material_category_abandonment_effect
+  - no_material_planned_session_effect
+
+agent_should_be_able_to_say:
+  - older unresolved tasks are increasingly likely to be abandoned
+  - the relationship becomes materially stronger after roughly two weeks
+  - task age should be measured from first commitment to Today rather than backlog creation
+  - some old tasks still complete successfully
+
+agent_should_not_claim:
+  - age causes abandonment
+  - every task older than two weeks will be abandoned
+  - a specific age threshold guarantees failure
+  - backlog age is equivalent to execution age
+  - category or interruptions explain the age pattern

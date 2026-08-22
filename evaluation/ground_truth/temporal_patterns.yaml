@@ -10,15 +10,19 @@ date_range:
 
 purpose: >
   Test whether an analyst can recover a planted temporal pattern:
-  mornings are generally stronger, except Monday mornings.
+  morning hours are generally stronger than afternoon hours, except
+  Monday mornings.
 
 notes:
   - Ground truth is for evaluation operators only.
   - Do not load this file in the generator's analytical path.
   - Do not supply this file to an agent under test.
+  - The 09:00-11:59 bucket is not required to be the single highest
+    observed day-part. Monday morning pulls that bucket down, and
+    early-morning / evening rates are small-sample.
 
 expected_patterns:
-  - mornings_have_highest_positive_outcome_rate_overall
+  - morning_hours_have_higher_positive_outcome_rate_than_afternoon_hours
   - late_afternoon_has_lower_positive_outcome_rate
   - monday_morning_is_a_strong_negative_exception
   - tuesday_to_friday_mornings_are_consistently_strong
@@ -28,8 +32,12 @@ expected_non_patterns:
   - task_age_does_not_explain_the_temporal_pattern
   - task_category_does_not_explain_the_temporal_pattern
 
+sample_size_cautions:
+  - do_not_infer_early_morning_is_best_from_its_small_sample_alone
+  - do_not_infer_evening_beats_morning_without_noting_its_small_sample
+
 agent_should_be_able_to_say:
-  - morning sessions generally have better outcomes
+  - morning hours generally have a higher positive-outcome rate than afternoon hours
   - monday morning is materially worse than other mornings
   - the broad morning advantage is not uniform across weekdays
 
@@ -38,3 +46,5 @@ agent_should_not_claim:
   - monday itself is always the worst day
   - all afternoon work performs badly
   - the pattern applies beyond the observed period
+  - early morning is the best period solely because a small sample looks high
+  - evening beats morning without noting the small evening sample
