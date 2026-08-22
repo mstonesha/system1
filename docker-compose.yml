@@ -73,6 +73,47 @@ services:
     profiles:
       - test
 
+  db-eval:
+    image: postgres:17
+    container_name: system1-db-eval
+    environment:
+      POSTGRES_USER: system1
+      POSTGRES_PASSWORD: system1
+      POSTGRES_DB: system1_agent_eval
+    volumes:
+      - postgres_eval_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U system1 -d system1_agent_eval"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - eval
+
+  eval:
+    build:
+      context: .
+      args:
+        INSTALL_DEV: "true"
+    container_name: system1-eval
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://system1:system1@db-eval:5432/system1_agent_eval
+      APP_NAME: Akrasia_Zero
+      DISPLAY_NAME: Matt Stone
+      APP_TIMEZONE: Europe/London
+      FOCUS_SESSION_MINUTES: "25"
+      BREAK_DURATION_MINUTES: "5"
+      LOG_LEVEL: INFO
+    depends_on:
+      db-eval:
+        condition: service_healthy
+    command: python -m evaluation.generate temporal_patterns
+    profiles:
+      - eval
+
 volumes:
   postgres_data:
   postgres_test_data:
+  postgres_eval_data:
