@@ -6,6 +6,7 @@ agent API.
 """
 
 from collections import defaultdict
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -14,7 +15,25 @@ from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.age import AGE_BUCKETS, classify_age_days
 from evaluation.catalog import parse_task_category
+from evaluation.change import (
+    focus_session_rows,
+    infer_start_monday,
+    last_n_weeks,
+    morning_afternoon_summary,
+    preceding_n_weeks,
+    rolling_gap,
+    rows_for_dates,
+    rows_for_weeks,
+    weekly_focus_rows,
+)
 from evaluation.clock import DAY_PARTS, classify_day_part
+from evaluation.planning import (
+    completed_task_effort_records,
+    effort_summary,
+    regime_positive_rates,
+    unused_planned_breakdown,
+    weekly_workload_rows,
+)
 
 
 POSITIVE_OUTCOMES = frozenset({"progress", "complete"})
@@ -198,6 +217,8 @@ def print_observed_rates(db: Session) -> None:
         print(f"  - {title}")
 
     print_task_age_tables(db)
+    print_planning_tables(db)
+    print_behaviour_change_tables(db)
 
 
 def terminal_task_records(db: Session) -> list[dict]:
@@ -382,3 +403,200 @@ def print_task_age_tables(db: Session) -> None:
         )
     else:
         print("  n=0")
+
+
+def print_planning_tables(db: Session) -> None:
+    first = db.query(DailyTask.date).order_by(DailyTask.date).first()
+    if first is None:
+        return
+    start = first[0]
+    start = start.fromordinal(start.toordinal() - start.weekday())
+    totals = unused_planned_breakdown(db)
+    weeks = weekly_workload_rows(db, start)
+    efforts = completed_task_effort_records(db)
+    summary = effort_summary(efforts)
+    regimes = regime_positive_rates(weeks)
+
+    print("planned vs actual sessions")
+    print(f"  planned_sessions: {totals['planned_sessions']}")
+    print(f"  actual_sessions: {totals['actual_sessions']}")
+    print(f"  execution_ratio: {totals['execution_ratio']:.3f}")
+    print(
+        "  planned_over_actual_gap: "
+        f"{totals['planned_over_actual_gap']:.1%}"
+    )
+    print("unused planned sessions")
+    print(
+        f"  unused_total: {totals['unused_planned_sessions']}"
+    )
+    print(
+        "  unused_due_to_completion: "
+        f"{totals['unused_due_to_completion']}"
+    )
+    print(
+        "  unused_while_task_remained_active: "
+        f"{totals['unused_while_task_remained_active']}"
+    )
+    print(
+        "  unused_with_terminal_abandonment: "
+        f"{totals['unused_with_terminal_abandonment']}"
+    )
+    print("DailyTask execution cases")
+    print(
+        f"  case_a_active_shortfall: "
+        f"{totals['case_a_active_shortfall']}"
+    )
+    print(
+        f"  case_b_early_completion: "
+        f"{totals['case_b_early_completion']}"
+    )
+    print(f"  case_c_extra_work: {totals['case_c_extra_work']}")
+    print(
+        f"  case_d_executed_as_planned: "
+        f"{totals['case_d_executed_as_planned']}"
+    )
+
+    print("completed Task estimated_sessions vs actual lifetime sessions")
+    if summary["n"]:
+        print(f"  n_completed_with_estimate: {summary['n']}")
+        print(f"  mean_estimated: {summary['mean_estimated']:.2f}")
+        print(f"  mean_actual: {summary['mean_actual']:.2f}")
+        print(f"  mean_ratio: {summary['mean_ratio']:.3f}")
+        print(f"  median_ratio: {summary['median_ratio']:.3f}")
+        print(
+            "  below/near/above estimate: "
+            f"{summary['below']}/{summary['near']}/{summary['above']}"
+        )
+    else:
+        print("  n=0")
+
+    print("weekly workload")
+    print(
+        "  week  start       dailies  planned  actual  "
+        "pos_rate  regime"
+    )
+    for row in weeks:
+        print(
+            f"  {row['week']:4d}  "
+            f"{row['week_start'].isoformat()}  "
+            f"{row['daily_task_count']:7d}  "
+            f"{row['planned_sessions']:7d}  "
+            f"{row['actual_sessions']:6d}  "
+            f"{row['positive_rate']:7.1%}  "
+            f"{row['observed_regime']}"
+        )
+
+    print("observed regime summary")
+    for name in ("normal", "transitional", "heavy"):
+        stats = regimes.get(name)
+        if not stats:
+            continue
+        print(
+            f"  {name}: pos={stats['positive_rate']:.1%}  "
+            f"weeks={stats['weeks']}  "
+            f"mean_planned={stats['mean_planned']:.1f}  "
+            f"mean_dailies={stats['mean_daily_tasks']:.1f}  "
+            f"n={stats['session_count']}"
+        )
+
+
+def print_behaviour_change_tables(db: Session) -> None:
+    start = infer_start_monday(db)
+    if start is None:
+        return
+    rows = focus_session_rows(db)
+    if not rows:
+        return
+    weekly = weekly_focus_rows(rows, start)
+    last_date = max(row["local_date"] for row in rows)
+
+    def _print_window(title: str, matched: list[dict]) -> None:
+        summary = morning_afternoon_summary(matched)
+        print(
+            f"  {title}: "
+            f"morning {summary['morning_rate']:6.1%} "
+            f"n={summary['morning_n']}  "
+            f"afternoon {summary['afternoon_rate']:6.1%} "
+            f"n={summary['afternoon_n']}  "
+            f"gap {summary['gap']:+6.1%}"
+        )
+
+    print("morning vs afternoon by window")
+    _print_window("lifetime", rows)
+    _print_window("weeks 1-22 historical", rows_for_weeks(rows, start, 1, 22))
+    _print_window("weeks 23-28 transition", rows_for_weeks(rows, start, 23, 28))
+    _print_window("weeks 29-36 recent", rows_for_weeks(rows, start, 29, 36))
+    _print_window("last 16 weeks", last_n_weeks(rows, start, 16))
+    _print_window("last 8 weeks", last_n_weeks(rows, start, 8))
+    _print_window(
+        "preceding 16 weeks",
+        preceding_n_weeks(
+            rows,
+            start,
+            recent_weeks=8,
+            preceding_weeks=16,
+        ),
+    )
+    _print_window("last 6 weeks", last_n_weeks(rows, start, 6))
+    _print_window(
+        "previous 12 weeks",
+        preceding_n_weeks(
+            rows,
+            start,
+            recent_weeks=6,
+            preceding_weeks=12,
+        ),
+    )
+    _print_window(
+        "last 30 days",
+        rows_for_dates(rows, last_date - timedelta(days=29), last_date),
+    )
+    _print_window(
+        "previous 90 days",
+        rows_for_dates(
+            rows,
+            last_date - timedelta(days=119),
+            last_date - timedelta(days=30),
+        ),
+    )
+
+    print("weekly morning vs afternoon")
+    print(
+        "  week  start       morn_n  morn_rate  aft_n  aft_rate   gap"
+    )
+    for row in weekly:
+        print(
+            f"  {row['week']:4d}  {row['week_start'].isoformat()}  "
+            f"{row['morning_n']:6d}  {row['morning_rate']:9.1%}  "
+            f"{row['afternoon_n']:5d}  {row['afternoon_rate']:8.1%}  "
+            f"{row['gap']:+6.1%}"
+        )
+
+    print("rolling 4-week morning-minus-afternoon gap")
+    for row in rolling_gap(weekly, 4):
+        print(
+            f"  through week {row['through_week']:2d}: "
+            f"gap {row['gap']:+6.1%}  "
+            f"morning n={row['morning_n']}  "
+            f"afternoon n={row['afternoon_n']}"
+        )
+
+    print("rolling 6-week morning-minus-afternoon gap")
+    for row in rolling_gap(weekly, 6):
+        print(
+            f"  through week {row['through_week']:2d}: "
+            f"gap {row['gap']:+6.1%}  "
+            f"morning n={row['morning_n']}  "
+            f"afternoon n={row['afternoon_n']}"
+        )
+
+    print("interruption rate by evaluator phase window")
+    for title, matched in (
+        ("weeks 1-22", rows_for_weeks(rows, start, 1, 22)),
+        ("weeks 23-28", rows_for_weeks(rows, start, 23, 28)),
+        ("weeks 29-36", rows_for_weeks(rows, start, 29, 36)),
+    ):
+        if not matched:
+            continue
+        rate = sum(row["interrupted"] for row in matched) / len(matched)
+        print(f"  {title}: interrupted={rate:.1%}  n={len(matched)}")

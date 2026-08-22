@@ -1,0 +1,75 @@
+scenario: behaviour_change
+seed: 20260907
+timezone: Europe/London
+date_range:
+  start: "2026-09-07"
+  end: "2027-05-14"
+  working_weeks: 36
+  weekdays: Monday-Friday
+  weekends_excluded: true
+
+purpose: >
+  Test whether an analyst can see that a historically strong morning
+  advantage has weakened and is no longer a good description of
+  recent behaviour, even though the lifetime aggregate still favours
+  mornings.
+
+phases:
+  historical: [1, 22]
+  transition: [23, 28]
+  recent: [29, 36]
+decoy_week: 30
+
+intended_rates:
+  historical_morning: "0.74-0.80"
+  historical_afternoon: "0.45-0.52"
+  recent_morning: "0.58-0.63"
+  recent_afternoon: "0.61-0.66"
+  lifetime_morning: "0.68-0.74"
+  lifetime_afternoon: "0.50-0.58"
+
+tolerances:
+  historical_gap: ">=0.18"
+  lifetime_gap: ">=0.08"
+  recent_gap: "<=0.08"
+  last_16_weeks_gap_between_lifetime_and_recent: true
+  decoy_week_gap: ">=0.15"
+  weekday_positive_spread: "<=0.18"
+  interruption_positive_gap: "<=0.12"
+  rates_are_approximate: true
+
+notes:
+  - Ground truth is for evaluation operators only.
+  - Do not load this file in the generator's analytical path.
+  - Do not supply this file to an agent under test.
+  - Phase labels are evaluation-only and must not become production
+    schema or an agent-facing field.
+  - Morning is 09:00-11:59; afternoon is 12:00-17:59.
+  - One recent week is a noisy echo of the old pattern on purpose.
+
+expected_patterns:
+  - historical_morning_advantage_is_strong
+  - morning_advantage_narrows_over_time
+  - recent_morning_advantage_is_absent_or_small
+  - lifetime_average_overstates_current_morning_advantage
+
+expected_non_patterns:
+  - no_meaningful_weekday_effect
+  - no_meaningful_interruption_effect
+  - no_material_category_effect
+  - no_task_age_abandonment_gradient
+  - no_workload_regime_explaining_the_change
+
+agent_should_be_able_to_say:
+  - mornings were historically associated with better outcomes
+  - that advantage has weakened substantially
+  - recent weeks no longer support a strong morning recommendation
+  - lifetime averages are stale for describing current behaviour
+  - the change appears gradual rather than being one anomalous week
+
+agent_should_not_claim:
+  - afternoons definitely cause better performance now
+  - the historical morning pattern never existed
+  - the recent change is caused by interruptions, workload, category, or weekday
+  - one recent week proves a permanent behavioural shift
+  - lifetime data should simply be discarded

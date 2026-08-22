@@ -79,6 +79,18 @@ def test_cli_refuses_development_database(monkeypatch):
     ):
         main(["task_age_abandonment"])
 
+    with pytest.raises(
+        RuntimeError,
+        match="Refusing to generate evaluation data",
+    ):
+        main(["planning_workload"])
+
+    with pytest.raises(
+        RuntimeError,
+        match="Refusing to generate evaluation data",
+    ):
+        main(["behaviour_change"])
+
 
 def test_reset_refuses_test_database_without_dropping(
     engine,

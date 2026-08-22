@@ -5,6 +5,8 @@ Usage:
     python -m evaluation.generate temporal_patterns
     python -m evaluation.generate interruptions_dependencies
     python -m evaluation.generate task_age_abandonment --print-rates
+    python -m evaluation.generate planning_workload --print-rates
+    python -m evaluation.generate behaviour_change --print-rates
 """
 
 from __future__ import annotations
@@ -28,6 +30,14 @@ from evaluation.scenarios.interruptions_dependencies import (
     DEFAULT_SEED as INTERRUPTIONS_DEPENDENCIES_SEED,
     generate_interruptions_dependencies,
 )
+from evaluation.scenarios.planning_workload import (
+    DEFAULT_SEED as PLANNING_WORKLOAD_SEED,
+    generate_planning_workload,
+)
+from evaluation.scenarios.behaviour_change import (
+    DEFAULT_SEED as BEHAVIOUR_CHANGE_SEED,
+    generate_behaviour_change,
+)
 from evaluation.scenarios.task_age_abandonment import (
     DEFAULT_SEED as TASK_AGE_ABANDONMENT_SEED,
     generate_task_age_abandonment,
@@ -42,11 +52,15 @@ GENERATORS = {
     "temporal_patterns": generate_temporal_patterns,
     "interruptions_dependencies": generate_interruptions_dependencies,
     "task_age_abandonment": generate_task_age_abandonment,
+    "planning_workload": generate_planning_workload,
+    "behaviour_change": generate_behaviour_change,
 }
 DEFAULT_SEEDS = {
     "temporal_patterns": TEMPORAL_PATTERNS_SEED,
     "interruptions_dependencies": INTERRUPTIONS_DEPENDENCIES_SEED,
     "task_age_abandonment": TASK_AGE_ABANDONMENT_SEED,
+    "planning_workload": PLANNING_WORKLOAD_SEED,
+    "behaviour_change": BEHAVIOUR_CHANGE_SEED,
 }
 
 

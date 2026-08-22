@@ -1,0 +1,99 @@
+scenario: planning_workload
+seed: 20260302
+timezone: Europe/London
+date_range:
+  start: "2026-03-02"
+  end: "2026-08-28"
+  working_weeks: 26
+  weekdays: Monday-Friday
+  weekends_excluded: true
+
+purpose: >
+  Test whether an analyst can distinguish capacity over-planning from
+  effort underestimation, treat early completion as distinct from
+  unused deferred capacity, and detect that unusually heavy planned
+  weeks have poorer session outcomes.
+
+heavy_weeks:
+  - 5
+  - 6
+  - 12
+  - 13
+  - 18
+  - 19
+  - 23
+  - 24
+heavy_week_styles:
+  many_small: [5, 6, 18, 23]
+  few_fat: [12, 13, 19, 24]
+
+intended_weekly_planned_sessions:
+  note: >
+    The original sketch of ~25-32 vs ~42-50 planned sessions per week
+    would under-fill the 1,100-1,500 WorkSession volume. Dataset D
+    scales both regimes by the same factor (~1.7x) so heavy weeks
+    remain about 1.6 times a normal week.
+  normal: "48-60"
+  heavy: "78-92"
+
+intended_rates:
+  planned_over_actual_gap: "0.15-0.25"
+  completed_task_actual_over_estimated: "0.15-0.25"
+  normal_week_positive_rate: "0.68-0.75"
+  heavy_week_positive_rate: "0.48-0.58"
+
+tolerances:
+  planned_over_actual_gap: "0.10-0.32"
+  estimate_mean_ratio: "1.10-1.35"
+  heavy_vs_normal_positive_gap: ">=0.10"
+  weekday_positive_spread: "<=0.18"
+  interruption_positive_gap: "<=0.12"
+  category_stuck_spread: "<=0.16"
+  early_vs_late_positive_gap: "<=0.08"
+  unused_completion_vs_active_shortfall: >
+    total unused planned sessions must exceed unused-while-active
+    by a meaningful amount because some unused capacity is early
+    completion
+  rates_are_approximate: true
+
+notes:
+  - Ground truth is for evaluation operators only.
+  - Do not load this file in the generator's analytical path.
+  - Do not supply this file to an agent under test.
+  - Workload regime labels are evaluation-only and must not become
+    production schema or an agent-facing field.
+  - estimated_sessions and planned_sessions are different concepts.
+  - DailyTask.planned_sessions stays in 1-5. Extra weekly load is
+    realised with additional Tasks/DailyTasks, not by inflating one
+    DailyTask's planned count.
+  - Weekly planned totals were scaled to support session volume;
+    the planted contrast is heavy vs normal, not the original sketch
+    of 25-32 vs 42-50.
+
+expected_patterns:
+  - planned_daily_sessions_exceed_actual_sessions_overall
+  - some_unused_planned_capacity_is_explained_by_early_completion
+  - task_effort_is_mildly_underestimated_on_average
+  - heavy_planned_workload_weeks_have_lower_positive_outcome_rate
+
+expected_non_patterns:
+  - no_meaningful_weekday_effect
+  - no_meaningful_daypart_effect
+  - no_meaningful_interruption_effect
+  - no_material_category_effect
+  - no_strong_task_age_abandonment_effect
+  - no_long_term_improvement_or_decline
+
+agent_should_be_able_to_say:
+  - planned workload is generally higher than executed workload
+  - part of the planned-versus-actual gap is benign because some tasks finish early
+  - tasks tend to require somewhat more sessions than initially estimated
+  - unusually heavy planned weeks are associated with worse session outcomes
+  - capacity over-planning and effort underestimation are distinct issues
+
+agent_should_not_claim:
+  - every unused planned session represents failure
+  - completing a task early is evidence of bad planning
+  - high workload causes poor outcomes
+  - estimated_sessions and planned_sessions measure the same thing
+  - a temporal/category/interruption pattern exists when it is only noise
