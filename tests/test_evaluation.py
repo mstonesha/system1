@@ -91,6 +91,12 @@ def test_cli_refuses_development_database(monkeypatch):
     ):
         main(["behaviour_change"])
 
+    with pytest.raises(
+        RuntimeError,
+        match="Refusing to generate evaluation data",
+    ):
+        main(["noise_control"])
+
 
 def test_reset_refuses_test_database_without_dropping(
     engine,

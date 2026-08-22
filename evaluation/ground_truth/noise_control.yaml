@@ -1,0 +1,85 @@
+scenario: noise_control
+seed: 20270517
+timezone: Europe/London
+date_range:
+  start: "2027-05-17"
+  end: "2027-10-01"
+  working_weeks: 20
+  weekdays: Monday-Friday
+  weekends_excluded: true
+
+purpose: >
+  Test whether an analyst can avoid inventing a behavioural pattern
+  from random variation. Some groups will rank higher than others.
+  Those differences are descriptive sampling noise, not evidence of
+  a robust weekday, time, interruption, category, age, workload, or
+  trend effect.
+
+baseline:
+  positive_rate: 0.65
+  interruption_rate: 0.18
+  outcome_independent_of:
+    - weekday
+    - daypart
+    - interruption
+    - category
+    - task_age
+    - planned_workload
+    - estimated_sessions
+    - hierarchy
+    - calendar_time
+
+tolerances:
+  overall_positive_rate: "0.58-0.72"
+  weekday_positive_spread: "<=0.16"
+  high_volume_daypart_spread: "<=0.14"
+  interruption_positive_gap: "<=0.10"
+  hr_vs_non_hr_stuck_gap: "<=0.10"
+  age_abandonment_young_vs_old: "<=0.22"
+  high_vs_low_workload_positive_gap: "<=0.14"
+  early_vs_late_positive_gap: "<=0.10"
+  observed_ranking_is_allowed: true
+  rates_are_approximate: true
+
+notes:
+  - Ground truth is for evaluation operators only.
+  - Do not load this file in the generator's analytical path.
+  - Do not supply this file to an agent under test.
+  - Observed group differences are expected and may be reportable
+    as descriptions. They must not be escalated to stable behavioural
+    conclusions without considering sample size, effect size, and
+    stability across windows.
+  - Small early-morning and evening buckets are especially likely
+    to look extreme by chance.
+
+expected_patterns:
+  - no_robust_behavioural_pattern
+  - observed_group_differences_are_sampling_noise
+  - performance_is_broadly_stable_over_time
+
+expected_non_patterns:
+  - no_meaningful_weekday_effect
+  - no_meaningful_daypart_effect
+  - no_meaningful_interruption_effect
+  - no_hr_stuck_cluster
+  - no_task_age_abandonment_gradient
+  - no_workload_outcome_relationship
+  - no_longitudinal_improvement_or_decline
+  - no_behaviour_change_regime
+
+agent_should_be_able_to_say:
+  - some groups have different observed rates
+  - those differences are not sufficiently large or stable to support a strong behavioural conclusion
+  - small buckets should be treated cautiously
+  - there is no robust evidence for a weekday, time, interruption, category, age, workload, or trend effect
+  - more data may eventually reveal a pattern, but this dataset does not currently justify one
+
+agent_should_not_claim:
+  - a best weekday based solely on ranking
+  - a best time of day from a small noisy bucket
+  - interruptions meaningfully affect outcomes
+  - HR dependencies explain stuck work
+  - old tasks are more likely to be abandoned
+  - heavy workload reduces effectiveness
+  - performance is improving or worsening
+  - any short run represents a persistent behavioural change

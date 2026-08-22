@@ -162,7 +162,11 @@ def print_observed_rates(db: Session) -> None:
         rate = sum(values) / len(values)
         return f"{rate:6.1%}  n={len(values)}"
 
+    overall = [row["positive"] for row in rows]
     print()
+    print("overall positive outcome rate")
+    print(f"  {_fmt(overall)}")
+
     print("positive outcome rate by weekday")
     for weekday in WEEKDAYS:
         print(f"  {weekday}: {_fmt(by_weekday[weekday])}")

@@ -7,6 +7,7 @@ Usage:
     python -m evaluation.generate task_age_abandonment --print-rates
     python -m evaluation.generate planning_workload --print-rates
     python -m evaluation.generate behaviour_change --print-rates
+    python -m evaluation.generate noise_control --print-rates
 """
 
 from __future__ import annotations
@@ -29,6 +30,10 @@ from evaluation.result import GenerationResult
 from evaluation.scenarios.interruptions_dependencies import (
     DEFAULT_SEED as INTERRUPTIONS_DEPENDENCIES_SEED,
     generate_interruptions_dependencies,
+)
+from evaluation.scenarios.noise_control import (
+    DEFAULT_SEED as NOISE_CONTROL_SEED,
+    generate_noise_control,
 )
 from evaluation.scenarios.planning_workload import (
     DEFAULT_SEED as PLANNING_WORKLOAD_SEED,
@@ -54,6 +59,7 @@ GENERATORS = {
     "task_age_abandonment": generate_task_age_abandonment,
     "planning_workload": generate_planning_workload,
     "behaviour_change": generate_behaviour_change,
+    "noise_control": generate_noise_control,
 }
 DEFAULT_SEEDS = {
     "temporal_patterns": TEMPORAL_PATTERNS_SEED,
@@ -61,6 +67,7 @@ DEFAULT_SEEDS = {
     "task_age_abandonment": TASK_AGE_ABANDONMENT_SEED,
     "planning_workload": PLANNING_WORKLOAD_SEED,
     "behaviour_change": BEHAVIOUR_CHANGE_SEED,
+    "noise_control": NOISE_CONTROL_SEED,
 }
 
 
