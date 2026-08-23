@@ -1,9 +1,15 @@
 """Dataset F — noise_control.
 
 A stable baseline with no planted weekday, day-part, interruption,
-category, age, workload, or trend effect. Realised differences are
-sampling noise. The correct conclusion is that no robust behavioural
-pattern is supported.
+category, age, workload, trend, or systematic planning effect.
+Realised differences are sampling noise. The correct conclusion is
+that no robust behavioural pattern is supported.
+
+Daily planned_sessions are fitted to that day's realised WorkSessions
+with noise, so capacity is broadly commensurate rather than a
+dataset-wide overplanning signal. Task.estimated_sessions is aligned
+to intended duration with the same RNG token used previously, so
+effort estimation is not systematically biased.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
@@ -260,6 +266,11 @@ class _NoiseControlGenerator:
         remaining = 99 if is_parent else self._remaining_days(
             force_long=force_long
         )
+        if not is_parent:
+            task.estimated_sessions = max(
+                1,
+                remaining + task.estimated_sessions - 2,
+            )
         plan = TaskPlan(
             task=task,
             category=category,
@@ -323,6 +334,7 @@ class _NoiseControlGenerator:
         for daily, session_plan in holders:
             self._insert_session(daily, session_plan)
         self.db.flush()
+        self._fit_planned_sessions(holders)
         self._apply_day_endings(chosen, daily_rows)
 
     def _plan_sessions(
@@ -403,6 +415,44 @@ class _NoiseControlGenerator:
                 + timedelta(seconds=session.actual_duration_seconds)
             )
             previous_end = session.ended_at_local
+
+    def _fit_planned_sessions(
+        self,
+        holders: list[tuple[DailyTask, SessionPlan]],
+    ) -> None:
+        """Set planned_sessions near realised counts without extra RNG.
+
+        The DailyTask.planned_sessions column still holds the original
+        choice([1,1,2,2,2,3,3,4]) draw so later days keep the same
+        random stream. That token is then mapped onto the day's actual
+        session count, keeping plans in 1–5. The mapping is slightly
+        unused-biased overall without making planned load a strong
+        overplanning signal.
+        """
+        actual_by_id: dict[int, int] = {}
+        dailies: dict[int, DailyTask] = {}
+        for daily, _session in holders:
+            actual_by_id[daily.id] = actual_by_id.get(daily.id, 0) + 1
+            dailies[daily.id] = daily
+        for daily in dailies.values():
+            noise = daily.planned_sessions or 1
+            daily.planned_sessions = self._planned_from_actual(
+                actual_by_id[daily.id],
+                noise,
+            )
+
+    def _planned_from_actual(self, actual: int, noise: int) -> int:
+        if actual <= 1:
+            if noise <= 3:
+                return 1
+            return 2
+        if noise == 1:
+            return min(5, actual)
+        if noise == 2:
+            return max(1, actual - 1)
+        if noise == 3:
+            return min(5, actual + 1)
+        return min(5, actual + 2)
 
     def _assign_sessions(
         self,

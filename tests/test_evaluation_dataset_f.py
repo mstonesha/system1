@@ -13,6 +13,11 @@ from app.analytics.outcomes import (
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
+from app.analytics.planning import (
+    daily_planning_summary,
+    task_effort_estimation,
+    weekly_workload,
+)
 from app.analytics.task_age import task_abandonment_by_execution_age
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
@@ -90,8 +95,14 @@ def test_ground_truth_matches_generator_constants():
     assert payload["baseline"]["positive_rate"] == BASELINE_POSITIVE_RATE
     assert "no_robust_behavioural_pattern" in payload["expected_patterns"]
     assert "no_hr_stuck_cluster" in payload["expected_non_patterns"]
+    assert "no_systematic_daily_overplanning" in (
+        payload["expected_non_patterns"]
+    )
     assert "a best weekday based solely on ranking" in (
         payload["agent_should_not_claim"]
+    )
+    assert payload["tolerances"]["capacity_execution_ratio"] == (
+        "0.85-1.00"
     )
 
 
@@ -526,3 +537,99 @@ def test_analytics_exposes_dataset_f_noisy_age_buckets(
     assert forbidden.isdisjoint(
         analysis.__dataclass_fields__
     )
+
+
+def test_analytics_exposes_dataset_f_planning_without_labels(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    summary = daily_planning_summary(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    weeks = weekly_workload(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    planned_values = [
+        group.planned_sessions for group in weeks.groups
+    ]
+    rates = [
+        group.positive_rate
+        for group in weeks.groups
+        if group.positive_rate is not None
+    ]
+    assert summary.total_planned_sessions > 0
+    assert summary.total_actual_sessions > 0
+    assert weeks.groups
+    assert max(planned_values) != min(planned_values)
+    assert max(rates) != min(rates)
+    assert "heavy_week" not in weeks.__dataclass_fields__
+    assert "workload_too_high" not in summary.__dataclass_fields__
+
+
+def test_analytics_dataset_f_capacity_is_broadly_neutral(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    summary = daily_planning_summary(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    weeks = weekly_workload(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    assert 0.85 <= summary.execution_ratio <= 1.00
+    assert summary.daily_tasks_actual_below_plan >= 20
+    assert summary.daily_tasks_actual_equal_plan >= 20
+    assert summary.daily_tasks_actual_above_plan >= 20
+    assert summary.unused_due_to_early_completion >= 5
+    assert summary.unused_while_unfinished >= 5
+    assert summary.unused_on_abandonment >= 1
+    planned_values = [
+        group.planned_sessions for group in weeks.groups
+    ]
+    assert max(planned_values) != min(planned_values)
+    ordered = sorted(
+        weeks.groups,
+        key=lambda group: group.planned_sessions,
+    )
+    high = ordered[-4:]
+    low = ordered[:4]
+    high_sessions = sum(group.actual_sessions for group in high)
+    low_sessions = sum(group.actual_sessions for group in low)
+    high_rate = (
+        sum(group.positive_sessions for group in high)
+        / high_sessions
+    )
+    low_rate = (
+        sum(group.positive_sessions for group in low)
+        / low_sessions
+    )
+    assert abs(high_rate - low_rate) <= 0.14
+
+
+def test_analytics_dataset_f_effort_is_broadly_neutral(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    effort = task_effort_estimation(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    assert effort.completed_tasks_with_estimate >= 40
+    assert effort.below_estimate_count >= 8
+    assert effort.near_estimate_count >= 8
+    assert effort.above_estimate_count >= 8
+    assert 0.75 <= effort.mean_actual_to_estimated_ratio <= 1.25
+    assert 0.75 <= effort.median_actual_to_estimated_ratio <= 1.25
+    assert "recommendation" not in effort.__dataclass_fields__

@@ -1,5 +1,5 @@
 import inspect
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -8,6 +8,11 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analytics.planning import (
+    daily_planning_summary,
+    task_effort_estimation,
+    weekly_workload,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.clock import classify_day_part, working_days
@@ -489,3 +494,108 @@ def test_no_strong_age_abandonment_gradient(eval_db):
     old_rate = sum(row["abandoned"] for row in old) / len(old)
     assert abs(old_rate - young_rate) <= 0.22
     assert old_rate < 0.45
+
+
+def test_analytics_recovers_dataset_d_capacity(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    summary = daily_planning_summary(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    assert summary.total_planned_sessions > summary.total_actual_sessions
+    assert 0.72 <= summary.execution_ratio <= 0.92
+    unused = summary.total_unused_planned_sessions
+    assert summary.unused_due_to_early_completion >= 20
+    assert summary.unused_while_unfinished >= 20
+    assert unused > summary.unused_while_unfinished + 15
+    assert (
+        summary.unused_due_to_early_completion / unused >= 0.15
+    )
+    assert summary.daily_tasks_actual_above_plan >= 15
+    assert summary.daily_tasks_actual_below_plan >= 20
+    forbidden = {
+        "overplanned",
+        "heavy_week",
+        "recommendation",
+        "overplanning_problem",
+    }
+    assert forbidden.isdisjoint(summary.__dataclass_fields__)
+
+
+def test_analytics_recovers_dataset_d_effort(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    effort = task_effort_estimation(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    assert effort.completed_tasks_with_estimate >= 80
+    assert effort.below_estimate_count >= 8
+    assert effort.near_estimate_count >= 8
+    assert effort.above_estimate_count >= 20
+    assert 1.10 <= effort.mean_actual_to_estimated_ratio <= 1.35
+    assert effort.mean_actual_sessions > effort.mean_estimated_sessions
+    assert "recommendation" not in effort.__dataclass_fields__
+
+
+def test_analytics_exposes_dataset_d_weekly_planned_load(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    weeks = weekly_workload(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    by_start = {
+        group.week_start_date: group for group in weeks.groups
+    }
+    week_2 = by_start[date(2026, 3, 9)]
+    week_12 = by_start[date(2026, 5, 18)]
+    week_13 = by_start[date(2026, 5, 25)]
+    assert week_13.planned_sessions > week_2.planned_sessions
+    assert week_2.positive_rate > week_13.positive_rate
+    assert week_12.planned_sessions >= 70
+    assert week_12.actual_sessions < week_12.planned_sessions
+    high_planned = [
+        group
+        for group in weeks.groups
+        if group.planned_sessions >= 70
+    ]
+    low_planned = [
+        group
+        for group in weeks.groups
+        if group.planned_sessions <= 64
+    ]
+
+    def _rate(rows):
+        sessions = sum(row.actual_sessions for row in rows)
+        positive = sum(row.positive_sessions for row in rows)
+        return positive / sessions
+
+    assert _rate(low_planned) - _rate(high_planned) >= 0.10
+    many_small = [
+        by_start[result.start_date + timedelta(weeks=week - 1)]
+        for week in (5, 6, 18, 23)
+    ]
+    few_fat = [
+        by_start[result.start_date + timedelta(weeks=week - 1)]
+        for week in (12, 13, 19, 24)
+    ]
+    mean_many = sum(
+        group.daily_task_count for group in many_small
+    ) / len(many_small)
+    mean_few = sum(
+        group.daily_task_count for group in few_fat
+    ) / len(few_fat)
+    assert mean_many > mean_few + 8
+    assert "heavy_week" not in weeks.__dataclass_fields__
+    assert "heavy_week" not in week_13.__dataclass_fields__

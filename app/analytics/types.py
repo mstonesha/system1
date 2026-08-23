@@ -6,6 +6,9 @@ Session-outcome families use ISO 8601 weekday numbers
 Task-age abandonment uses local calendar-day execution age
 from first qualifying Today appearance to terminal date.
 
+Planning families measure DailyTask capacity, completed-Task
+effort estimation, and local ISO-week workload separately.
+
 Rates are unrounded floating-point proportions in [0, 1],
 not percentages. Rounding belongs at presentation
 boundaries, not in this layer.
@@ -151,3 +154,73 @@ class TerminalTaskAge:
     terminal_date: date
     execution_age_days: int
     terminal_outcome: str
+
+
+@dataclass(frozen=True)
+class DailyPlanningSummary:
+    """DailyTask planned-versus-actual capacity in a local date range.
+
+    ``planned_sessions IS NULL`` is counted in
+    ``daily_tasks_without_explicit_plan`` and omitted from
+    planned/actual/unused totals. ``execution_ratio`` is
+    actual / planned, or None when planned is 0.
+    Unused classes use current DailyTask.state.
+    """
+
+    from_date: date
+    to_date: date
+    timezone: str
+    daily_tasks_with_explicit_plan: int
+    daily_tasks_without_explicit_plan: int
+    total_planned_sessions: int
+    total_actual_sessions: int
+    execution_ratio: float | None
+    total_unused_planned_sessions: int
+    unused_due_to_early_completion: int
+    unused_while_unfinished: int
+    unused_on_abandonment: int
+    daily_tasks_actual_below_plan: int
+    daily_tasks_actual_equal_plan: int
+    daily_tasks_actual_above_plan: int
+
+
+@dataclass(frozen=True)
+class TaskEffortEstimation:
+    """Completed-Task estimates versus lifetime committed sessions.
+
+    Near estimate means actual == estimated (integer counts),
+    not a ratio band. Means and median are unrounded.
+    """
+
+    from_date: date
+    to_date: date
+    timezone: str
+    completed_tasks_with_estimate: int
+    mean_estimated_sessions: float | None
+    mean_actual_sessions: float | None
+    mean_actual_to_estimated_ratio: float | None
+    median_actual_to_estimated_ratio: float | None
+    below_estimate_count: int
+    near_estimate_count: int
+    above_estimate_count: int
+
+
+@dataclass(frozen=True)
+class WeeklyWorkloadGroup:
+    week_start_date: date
+    daily_task_count: int
+    daily_tasks_without_explicit_plan: int
+    planned_sessions: int
+    actual_sessions: int
+    positive_sessions: int
+    negative_sessions: int
+    positive_rate: float | None
+    negative_rate: float | None
+
+
+@dataclass(frozen=True)
+class WeeklyWorkloadAnalysis:
+    from_date: date
+    to_date: date
+    timezone: str
+    groups: tuple[WeeklyWorkloadGroup, ...]
