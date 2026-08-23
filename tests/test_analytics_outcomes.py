@@ -11,6 +11,7 @@ from app.analytics.dayparts import (
 )
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
+    session_outcomes_by_interruption,
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
@@ -47,6 +48,7 @@ def _add_completed(
     local_started,
     outcome="progress",
     session_state="completed",
+    interrupted=False,
 ):
     task = make_task()
     daily_task = make_daily_task(
@@ -62,6 +64,7 @@ def _add_completed(
         actual_duration_seconds=1500,
         session_state=session_state,
         outcome=outcome,
+        interrupted=interrupted,
     )
     db.add(work_session)
     db.commit()
@@ -171,8 +174,18 @@ def test_empty_period_returns_empty_results(db):
         from_date=from_date,
         to_date=to_date,
     )
+    interruption = session_outcomes_by_interruption(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
 
-    for result in (weekday, daypart, interaction):
+    for result in (
+        weekday,
+        daypart,
+        interaction,
+        interruption,
+    ):
         assert result.from_date == from_date
         assert result.to_date == to_date
         assert result.timezone == "Europe/London"
@@ -489,7 +502,12 @@ def test_zero_count_interaction_cells_are_omitted(
 
 
 def test_result_has_no_interpretive_fields(db):
-    result = session_outcomes_by_weekday(
+    weekday = session_outcomes_by_weekday(
+        db,
+        from_date=date(2026, 1, 15),
+        to_date=date(2026, 1, 15),
+    )
+    interruption = session_outcomes_by_interruption(
         db,
         from_date=date(2026, 1, 15),
         to_date=date(2026, 1, 15),
@@ -500,6 +518,168 @@ def test_result_has_no_interpretive_fields(db):
         "significance",
         "recommendation",
         "pattern_detected",
+        "effect",
+        "correlation",
+        "interruption_penalty",
     }
-    assert forbidden.isdisjoint(result.__dataclass_fields__)
-    assert forbidden.isdisjoint(dir(result))
+    for result in (weekday, interruption):
+        assert forbidden.isdisjoint(
+            result.__dataclass_fields__
+        )
+        assert forbidden.isdisjoint(dir(result))
+
+
+def test_interruption_groups_committed_sessions(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 10, 0),
+        outcome="progress",
+        interrupted=False,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 10, 5),
+        outcome="complete",
+        interrupted=False,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 11, 0),
+        outcome="stuck",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 11, 5),
+        outcome="paused",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 11, 10),
+        outcome="abandoned",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 12, 0),
+        outcome=None,
+        session_state="running",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 13, 0),
+        outcome=None,
+        session_state="completed",
+        interrupted=False,
+    )
+
+    result = session_outcomes_by_interruption(
+        db,
+        from_date=date(2026, 1, 15),
+        to_date=date(2026, 1, 15),
+    )
+
+    assert result.total_sessions == 5
+    assert [group.interrupted for group in result.groups] == [
+        False,
+        True,
+    ]
+    uninterrupted, interrupted = result.groups
+    _assert_group_reconciles(uninterrupted)
+    _assert_group_reconciles(interrupted)
+    assert uninterrupted.session_count == 2
+    assert uninterrupted.progress_count == 1
+    assert uninterrupted.complete_count == 1
+    assert uninterrupted.positive_count == 2
+    assert interrupted.session_count == 3
+    assert interrupted.stuck_count == 1
+    assert interrupted.paused_count == 1
+    assert interrupted.abandoned_count == 1
+    assert interrupted.negative_count == 3
+
+
+def test_interruption_omits_missing_status(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 10, 0),
+        outcome="progress",
+        interrupted=False,
+    )
+
+    result = session_outcomes_by_interruption(
+        db,
+        from_date=date(2026, 1, 15),
+        to_date=date(2026, 1, 15),
+    )
+
+    assert result.total_sessions == 1
+    assert len(result.groups) == 1
+    assert result.groups[0].interrupted is False
+
+
+def test_interruption_respects_local_date_range(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 14, 10, 0),
+        outcome="stuck",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 15, 10, 0),
+        outcome="progress",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 16, 10, 0),
+        outcome="complete",
+        interrupted=False,
+    )
+
+    result = session_outcomes_by_interruption(
+        db,
+        from_date=date(2026, 1, 15),
+        to_date=date(2026, 1, 15),
+    )
+
+    assert result.total_sessions == 1
+    assert len(result.groups) == 1
+    assert result.groups[0].interrupted is True
+    assert result.groups[0].progress_count == 1

@@ -96,6 +96,21 @@ class WeekdayDaypartOutcomeGroup:
 
 
 @dataclass(frozen=True)
+class InterruptionOutcomeGroup:
+    interrupted: bool
+    session_count: int
+    progress_count: int
+    complete_count: int
+    stuck_count: int
+    paused_count: int
+    abandoned_count: int
+    positive_count: int
+    negative_count: int
+    positive_rate: float
+    negative_rate: float
+
+
+@dataclass(frozen=True)
 class OutcomeAnalysis[GroupT]:
     from_date: date
     to_date: date

@@ -8,6 +8,9 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analytics.outcomes import (
+    session_outcomes_by_interruption,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.catalog import parse_task_category
@@ -452,3 +455,54 @@ def test_categories_include_hr_and_are_not_only_hr(eval_db):
     assert len(categories) >= 5
     hr_share = sum(row["category"] == "HR" for row in rows) / len(rows)
     assert 0.10 <= hr_share <= 0.40
+
+
+def test_analytics_exposes_dataset_b_interruption_gap(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    analysis = session_outcomes_by_interruption(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    by_flag = {
+        group.interrupted: group
+        for group in analysis.groups
+    }
+    uninterrupted = by_flag[False]
+    interrupted = by_flag[True]
+
+    assert analysis.total_sessions == result.work_session_count
+    assert (
+        uninterrupted.positive_count
+        + uninterrupted.negative_count
+        == uninterrupted.session_count
+    )
+    assert (
+        interrupted.positive_count
+        + interrupted.negative_count
+        == interrupted.session_count
+    )
+    assert (
+        uninterrupted.positive_rate
+        - interrupted.positive_rate
+        >= 0.18
+    )
+    assert uninterrupted.positive_rate > 0.60
+    assert interrupted.positive_rate < 0.55
+    forbidden = {
+        "effect",
+        "correlation",
+        "significant",
+        "confidence",
+        "recommendation",
+        "interruption_penalty",
+    }
+    assert forbidden.isdisjoint(
+        analysis.__dataclass_fields__
+    )
+    assert forbidden.isdisjoint(
+        uninterrupted.__dataclass_fields__
+    )

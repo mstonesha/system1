@@ -2,9 +2,9 @@
 
 Aggregation happens in PostgreSQL. Callers pass a SQLAlchemy
 session and an inclusive local-calendar period; they cannot
-supply arbitrary SQL. Weekday and daypart are derived from
-``started_at`` after converting to ``APP_TIMEZONE``, not from
-UTC clock values.
+supply arbitrary SQL. Grouping keys are interruption status
+or local weekday/daypart derived from ``started_at`` after
+converting to ``APP_TIMEZONE``.
 """
 
 from datetime import date
@@ -19,6 +19,7 @@ from app.analytics.dayparts import (
 from app.analytics.types import (
     COMMITTED_OUTCOMES,
     DaypartOutcomeGroup,
+    InterruptionOutcomeGroup,
     OutcomeAnalysis,
     WeekdayDaypartOutcomeGroup,
     WeekdayOutcomeGroup,
@@ -141,6 +142,44 @@ def session_outcomes_by_weekday_daypart(
     )
     groups = tuple(
         _weekday_daypart_group(row) for row in rows
+    )
+    return _analysis(
+        from_date=from_date,
+        to_date=to_date,
+        timezone_name=timezone_name,
+        groups=groups,
+    )
+
+
+def session_outcomes_by_interruption(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+) -> OutcomeAnalysis[InterruptionOutcomeGroup]:
+    """Outcome counts and rates grouped by interruption.
+
+    Returns one group per interruption status that has at
+    least one committed session in the period. Uninterrupted
+    (false) precedes interrupted (true).
+    """
+    start_utc, end_utc, timezone_name = _period_bounds(
+        from_date,
+        to_date,
+    )
+    interrupted = WorkSession.interrupted
+    rows = _aggregate_outcome_counts(
+        db,
+        start_utc=start_utc,
+        end_utc=end_utc,
+        group_columns=(
+            interrupted.label("interrupted"),
+        ),
+        group_by=(interrupted,),
+        order_by=(interrupted,),
+    )
+    groups = tuple(
+        _interruption_group(row) for row in rows
     )
     return _analysis(
         from_date=from_date,
@@ -283,6 +322,13 @@ def _weekday_daypart_group(
         weekday=iso_weekday_name(weekday_number),
         weekday_number=weekday_number,
         daypart=row.daypart,
+        **_counts_from_row(row),
+    )
+
+
+def _interruption_group(row) -> InterruptionOutcomeGroup:
+    return InterruptionOutcomeGroup(
+        interrupted=bool(row.interrupted),
         **_counts_from_row(row),
     )
 

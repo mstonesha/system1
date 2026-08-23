@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
+    session_outcomes_by_interruption,
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
@@ -434,3 +435,40 @@ def test_analytics_keeps_dataset_f_small_n_visible(
     )
     assert monday_early.session_count > 0
     assert monday_early.session_count < 30
+
+
+def test_analytics_exposes_dataset_f_small_interruption_gap(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    analysis = session_outcomes_by_interruption(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    by_flag = {
+        group.interrupted: group
+        for group in analysis.groups
+    }
+    uninterrupted = by_flag[False]
+    interrupted = by_flag[True]
+    gap = abs(
+        uninterrupted.positive_rate
+        - interrupted.positive_rate
+    )
+
+    assert uninterrupted.session_count > 0
+    assert interrupted.session_count > 0
+    assert gap <= 0.10
+    forbidden = {
+        "effect",
+        "correlation",
+        "significant",
+        "confidence",
+        "recommendation",
+        "interruption_penalty",
+    }
+    assert forbidden.isdisjoint(
+        analysis.__dataclass_fields__
+    )

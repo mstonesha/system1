@@ -13,6 +13,7 @@ from app.analytics.dayparts import (
 )
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
+    session_outcomes_by_interruption,
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
@@ -21,6 +22,7 @@ from app.analytics.types import (
     NEGATIVE_OUTCOMES,
     POSITIVE_OUTCOMES,
     DaypartOutcomeGroup,
+    InterruptionOutcomeGroup,
     OutcomeAnalysis,
     WeekdayDaypartOutcomeGroup,
     WeekdayOutcomeGroup,
@@ -33,11 +35,13 @@ __all__ = [
     "NEGATIVE_OUTCOMES",
     "POSITIVE_OUTCOMES",
     "DaypartOutcomeGroup",
+    "InterruptionOutcomeGroup",
     "OutcomeAnalysis",
     "WeekdayDaypartOutcomeGroup",
     "WeekdayOutcomeGroup",
     "classify_daypart",
     "session_outcomes_by_daypart",
+    "session_outcomes_by_interruption",
     "session_outcomes_by_weekday",
     "session_outcomes_by_weekday_daypart",
 ]
