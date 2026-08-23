@@ -740,6 +740,74 @@ def test_agent_temporal_evidence_hides_scenario_and_ground_truth(
         assert token not in blob
         assert token not in prompt
     assert "interruption" not in evidence
+    assert "weekly_morning_afternoon" not in evidence
     assert len(evidence["weekday_outcomes"]) == len(weekdays.groups)
     assert len(evidence["daypart_outcomes"]) == len(dayparts.groups)
+
+
+def test_agent_temporal_v2_weekly_evidence_matches_production(
+    generated_eval,
+    eval_db,
+):
+    from app.analytics.change import weekly_morning_afternoon_outcomes
+    from evaluation.agent.evidence import (
+        build_temporal_evidence,
+        evidence_ids,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+
+    result = generated_eval["result"]
+    production = weekly_morning_afternoon_outcomes(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    evidence = build_temporal_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_a",
+        version="temporal-v2",
+    )
+    weeks = evidence["weekly_morning_afternoon"]
+    prompt = render_prompt(evidence, version="temporal-v2")
+    blob = serialize_evidence(evidence)
+    known = evidence_ids(evidence)
+    assert weeks
+    assert len(weeks) == len(production.groups)
+    assert [row["week_start"] for row in weeks] == [
+        group.week_start_date.isoformat()
+        for group in production.groups
+    ]
+    for row, group in zip(weeks, production.groups):
+        assert row["id"] == (
+            f"week:{group.week_start_date.isoformat()}"
+        )
+        assert row["morning_n"] == group.morning_session_count
+        assert row["morning_positive_rate"] == (
+            group.morning_positive_rate
+        )
+        assert row["afternoon_n"] == group.afternoon_session_count
+        assert row["afternoon_positive_rate"] == (
+            group.afternoon_positive_rate
+        )
+        assert row["positive_rate_gap"] == group.positive_rate_gap
+        assert row["id"] in known
+        assert row["id"] in prompt.user
+        assert "stable" not in row
+        assert "confidence" not in row
+        assert "significance" not in row
+    assert prompt.version == "temporal-v2"
+    assert "temporal-v2" in prompt.system
+    assert "weekly_morning_afternoon" in blob
+    for token in (
+        "temporal_patterns",
+        "noise_control",
+        "expected_patterns",
+        "monday_morning_is_a_strong_negative_exception",
+        "ground_truth",
+    ):
+        assert token not in blob
+        assert token not in prompt.combined_text()
 

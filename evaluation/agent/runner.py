@@ -4,6 +4,8 @@ Usage:
 
     python -m evaluation.agent.runner --scenario temporal_patterns --dry-run
     python -m evaluation.agent.runner --scenario noise_control --dry-run
+    python -m evaluation.agent.runner --scenario temporal_patterns --prompt-version temporal-v2 --dry-run
+    python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v2 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
 
@@ -33,7 +35,11 @@ from evaluation.agent.model import (
     load_configured_model,
     missing_provider_message,
 )
-from evaluation.agent.prompt import render_prompt
+from evaluation.agent.prompt import (
+    DEFAULT_PROMPT_VERSION,
+    PROMPT_VERSIONS,
+    render_prompt,
+)
 from evaluation.agent.store import persist_run, utc_timestamp
 from evaluation.agent.types import parse_agent_analysis
 from evaluation.database import (
@@ -68,6 +74,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=(
             "Synthetic scenario to generate. The model receives "
             "an opaque case_id, not this name."
+        ),
+    )
+    parser.add_argument(
+        "--prompt-version",
+        choices=PROMPT_VERSIONS,
+        default=DEFAULT_PROMPT_VERSION,
+        help=(
+            "Evidence and prompt contract. Default "
+            f"{DEFAULT_PROMPT_VERSION} preserves the original "
+            "baseline. temporal-v2 adds weekly "
+            "morning/afternoon series and stronger pattern "
+            "instructions."
         ),
     )
     parser.add_argument(
@@ -144,6 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 to_date=result.end_date,
                 dry_run=args.dry_run,
                 model=model,
+                prompt_version=args.prompt_version,
             )
     finally:
         engine.dispose()
@@ -175,6 +194,7 @@ def run_case(
     to_date: date,
     dry_run: bool,
     model: AnalysisModel | None,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> dict:
     """Build evidence, prompt, and optionally call the model.
 
@@ -185,8 +205,9 @@ def run_case(
         from_date=from_date,
         to_date=to_date,
         case_id=case_id,
+        version=prompt_version,
     )
-    prompt = render_prompt(evidence)
+    prompt = render_prompt(evidence, version=prompt_version)
     timestamp = utc_timestamp()
     if dry_run:
         return {
@@ -257,6 +278,12 @@ def _print_review(
         f"daypart={len(evidence['daypart_outcomes'])} "
         f"weekday_daypart="
         f"{len(evidence['weekday_daypart_outcomes'])}"
+        + (
+            " weekly="
+            f"{len(evidence['weekly_morning_afternoon'])}"
+            if "weekly_morning_afternoon" in evidence
+            else ""
+        )
     )
     _print_group_table(
         "weekday_outcomes",
@@ -281,6 +308,16 @@ def _print_review(
         f"positive_rate={window['afternoon']['positive_rate']}"
     )
     print(f"  positive_rate_gap={window['positive_rate_gap']}")
+    if "weekly_morning_afternoon" in evidence:
+        weeks = evidence["weekly_morning_afternoon"]
+        print(f"weekly_morning_afternoon: {len(weeks)}")
+        for row in weeks:
+            print(
+                f"  {row['week_start']} "
+                f"morning_n={row['morning_n']} "
+                f"afternoon_n={row['afternoon_n']} "
+                f"gap={row['positive_rate_gap']}"
+            )
     prompt_chars = len(record["prompt"]["system"]) + len(
         record["prompt"]["user"]
     )

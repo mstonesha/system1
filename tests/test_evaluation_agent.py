@@ -1,7 +1,9 @@
 import ast
 import inspect
 import json
+import urllib.error
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,11 +19,22 @@ from evaluation.agent.evidence import (
 from evaluation.agent.model import (
     API_KEY_ENV,
     BASE_URL_ENV,
+    ERROR_BODY_LIMIT,
     MODEL_ENV,
+    OpenAICompatibleModel,
     StubAnalysisModel,
     load_configured_model,
 )
-from evaluation.agent.prompt import PROMPT_VERSION, render_prompt
+from evaluation.agent.prompt import (
+    DEFAULT_PROMPT_VERSION,
+    PROMPT_VERSION,
+    PROMPT_VERSION_V1,
+    PROMPT_VERSION_V2,
+    SYSTEM_INSTRUCTIONS_V1,
+    SYSTEM_INSTRUCTIONS_V2,
+    ModelPrompt,
+    render_prompt,
+)
 from evaluation.agent.runner import run_case
 from evaluation.agent.store import persist_run
 from evaluation.agent.types import parse_agent_analysis
@@ -178,6 +191,7 @@ def test_evidence_module_uses_production_analytics():
     assert "session_outcomes_by_daypart" in source
     assert "session_outcomes_by_weekday_daypart" in source
     assert "morning_afternoon_window" in source
+    assert "weekly_morning_afternoon_outcomes" in text
     assert "evaluation.observe" not in text
     assert "yaml.safe_load" not in text
     assert "ground_truth" not in text
@@ -253,6 +267,7 @@ def test_evidence_builder_is_deterministic_and_keeps_small_n(
         "weekday_daypart_outcomes",
         "morning_afternoon",
     }
+    assert "weekly_morning_afternoon" not in first
 
 
 def test_evidence_builder_rejects_semantic_case_id(
@@ -320,6 +335,14 @@ def test_evidence_builder_calls_production_analytics(
             evidence_mod.morning_afternoon_window,
         ),
     )
+    monkeypatch.setattr(
+        evidence_mod,
+        "weekly_morning_afternoon_outcomes",
+        wrap(
+            "weeks",
+            evidence_mod.weekly_morning_afternoon_outcomes,
+        ),
+    )
     build_temporal_evidence(
         db,
         from_date=date(2026, 1, 12),
@@ -327,6 +350,145 @@ def test_evidence_builder_calls_production_analytics(
         case_id="case_f",
     )
     assert calls == ["weekday", "daypart", "cells", "window"]
+    calls.clear()
+    v2 = build_temporal_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_f",
+        version="temporal-v2",
+    )
+    assert calls == [
+        "weekday",
+        "daypart",
+        "cells",
+        "window",
+        "weeks",
+    ]
+    assert "weekly_morning_afternoon" in v2
+
+
+def test_temporal_v1_prompt_is_preserved():
+    assert PROMPT_VERSION == "temporal-v1"
+    assert DEFAULT_PROMPT_VERSION == "temporal-v1"
+    assert SYSTEM_INSTRUCTIONS_V1 is not SYSTEM_INSTRUCTIONS_V2
+    assert "This analysis uses contract temporal-v2" not in (
+        SYSTEM_INSTRUCTIONS_V1
+    )
+    assert "Cross-sectional consistency" not in (
+        SYSTEM_INSTRUCTIONS_V1
+    )
+    assert "It is explicitly acceptable for patterns to be empty" not in (
+        SYSTEM_INSTRUCTIONS_V1
+    )
+    assert "no robust pattern is supported" in (
+        SYSTEM_INSTRUCTIONS_V1.lower()
+    )
+    assert "sample size" in SYSTEM_INSTRUCTIONS_V1.lower()
+    prompt = render_prompt({"case_id": "case_a"}, version="temporal-v1")
+    assert prompt.version == PROMPT_VERSION_V1
+    assert prompt.system == SYSTEM_INSTRUCTIONS_V1
+
+
+def test_temporal_v2_prompt_strengthens_pattern_stability():
+    prompt = render_prompt(
+        {"case_id": "case_f"},
+        version="temporal-v2",
+    )
+    assert prompt.version == PROMPT_VERSION_V2
+    text = prompt.system.lower()
+    assert "this analysis uses contract temporal-v2" in text
+    assert "cross-sectional consistency" in text
+    assert "temporal stability" in text
+    assert "effect size" in text
+    assert "patterns to be empty" in text
+    assert "no robust pattern is supported" in text
+    assert "sample size" in text
+    assert "best" in text
+    assert "temporal_patterns" not in prompt.system
+    assert "noise_control" not in prompt.system
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_temporal_v2_weekly_evidence_uses_production_rows(
+    db,
+    make_task,
+    make_daily_task,
+):
+    from app.analytics.change import weekly_morning_afternoon_outcomes
+
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    from_date = date(2026, 1, 12)
+    to_date = date(2026, 1, 16)
+    production = weekly_morning_afternoon_outcomes(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    v1 = build_temporal_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_a",
+        version="temporal-v1",
+    )
+    v2 = build_temporal_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_a",
+        version="temporal-v2",
+    )
+    assert "weekly_morning_afternoon" not in v1
+    weeks = v2["weekly_morning_afternoon"]
+    assert len(weeks) == len(production.groups)
+    assert production.groups
+    for row, group in zip(weeks, production.groups):
+        week_start = group.week_start_date.isoformat()
+        assert row["id"] == f"week:{week_start}"
+        assert row["week_start"] == week_start
+        assert row["morning_n"] == group.morning_session_count
+        assert row["morning_positive_rate"] == (
+            group.morning_positive_rate
+        )
+        assert row["afternoon_n"] == group.afternoon_session_count
+        assert row["afternoon_positive_rate"] == (
+            group.afternoon_positive_rate
+        )
+        assert row["positive_rate_gap"] == group.positive_rate_gap
+        assert "stable" not in row
+        assert "significance" not in row
+    known = evidence_ids(v2)
+    assert weeks[0]["id"] in known
+    parsed = parse_agent_analysis(
+        json.dumps(
+            {
+                "observations": [
+                    {
+                        "statement": "A weekly gap is present.",
+                        "evidence_refs": [weeks[0]["id"]],
+                    }
+                ],
+                "patterns": [],
+                "hypotheses": [],
+                "insufficient_evidence": [
+                    {
+                        "statement": "An unknown week was cited.",
+                        "evidence_refs": ["week:1999-01-04"],
+                    }
+                ],
+                "suggested_drilldowns": [],
+            }
+        ),
+        known_ids=known,
+    )
+    assert parsed.ok
+    assert parsed.unknown_evidence_refs == ("week:1999-01-04",)
+    prompt = render_prompt(v2, version="temporal-v2")
+    assert weeks[0]["id"] in prompt.user
+    assert "weekly_morning_afternoon" in prompt.user
+    _assert_no_model_input_leak(prompt.combined_text())
+
 
 
 def test_prompt_includes_evidence_and_caution_rules(
@@ -344,7 +506,9 @@ def test_prompt_includes_evidence_and_caution_rules(
     prompt = render_prompt(evidence)
     combined = prompt.combined_text()
     assert prompt.version == PROMPT_VERSION
+    assert prompt.version == "temporal-v1"
     assert serialize_evidence(evidence) in prompt.user
+    assert "weekly_morning_afternoon" not in prompt.user
     assert "observations" in prompt.system
     assert "patterns" in prompt.system
     assert "hypotheses" in prompt.system
@@ -458,6 +622,8 @@ def test_run_case_dry_run_and_stub_do_not_need_live_api(
         model=None,
     )
     assert dry["parse_status"] == "dry_run"
+    assert dry["prompt_version"] == "temporal-v1"
+    assert "weekly_morning_afternoon" not in dry["evidence"]
     assert dry["raw_response"] is None
     _assert_no_model_input_leak(json.dumps(dry["evidence"]))
     _assert_no_model_input_leak(dry["prompt"]["system"])
@@ -498,6 +664,24 @@ def test_run_case_dry_run_and_stub_do_not_need_live_api(
     assert "weekday:sunday" not in known
     assert parsed.unknown_evidence_refs == ("weekday:sunday",)
 
+    v2 = run_case(
+        db,
+        case_id="case_a",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=True,
+        model=None,
+        prompt_version="temporal-v2",
+    )
+    assert v2["prompt_version"] == "temporal-v2"
+    assert v2["prompt"]["version"] == "temporal-v2"
+    assert "weekly_morning_afternoon" in v2["evidence"]
+    week_id = v2["evidence"]["weekly_morning_afternoon"][0]["id"]
+    assert week_id in evidence_ids(v2["evidence"])
+    assert "temporal-v2" in v2["prompt"]["system"]
+    _assert_no_model_input_leak(v2["prompt"]["system"])
+    _assert_no_model_input_leak(v2["prompt"]["user"])
+
 
 def test_cli_refuses_development_database(monkeypatch):
     monkeypatch.setenv(
@@ -513,3 +697,169 @@ def test_cli_refuses_development_database(monkeypatch):
         agent_main(
             ["--scenario", "temporal_patterns", "--dry-run"]
         )
+
+
+SECRET_KEY = "sk-test-secret-live-key"
+PROMPT_MARKER = "unique-prompt-body-should-not-appear"
+
+
+def _provider_prompt() -> ModelPrompt:
+    return ModelPrompt(
+        version=PROMPT_VERSION,
+        system="system-instructions",
+        user=PROMPT_MARKER,
+    )
+
+
+def _configured_model() -> OpenAICompatibleModel:
+    return OpenAICompatibleModel(
+        api_key=SECRET_KEY,
+        base_url="https://example.invalid/v1",
+        model="example-model",
+    )
+
+
+def _http_error(status: int, body: bytes) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        "https://example.invalid/v1/chat/completions",
+        status,
+        "Error",
+        {"Content-Type": "application/json"},
+        BytesIO(body),
+    )
+
+
+def _stub_http_error(monkeypatch, status: int, body: bytes) -> None:
+    def fake_urlopen(request, timeout=None):
+        raise _http_error(status, body)
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+
+class _FakeCompletionsResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps(
+            {
+                "choices": [
+                    {"message": {"content": "{}"}}
+                ]
+            }
+        ).encode("utf-8")
+
+
+def test_openai_compatible_model_omits_temperature(monkeypatch):
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _FakeCompletionsResponse()
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fake_urlopen,
+    )
+    result = _configured_model().analyse(_provider_prompt())
+    assert result.model_identifier == "example-model"
+    assert captured["url"].endswith("/chat/completions")
+    assert "temperature" not in captured["body"]
+    assert captured["body"]["model"] == "example-model"
+    assert captured["body"]["response_format"] == {
+        "type": "json_object"
+    }
+    assert captured["body"]["messages"][0]["content"] == (
+        "system-instructions"
+    )
+    assert captured["body"]["messages"][1]["content"] == (
+        PROMPT_MARKER
+    )
+
+
+def test_openai_compatible_model_surfaces_http_400_fields(
+    monkeypatch,
+):
+    payload = {
+        "error": {
+            "message": (
+                "Unsupported parameter: 'response_format'."
+            ),
+            "type": "invalid_request_error",
+            "param": "response_format",
+            "code": "unsupported_parameter",
+        }
+    }
+    _stub_http_error(
+        monkeypatch,
+        400,
+        json.dumps(payload).encode("utf-8"),
+    )
+    with pytest.raises(RuntimeError) as caught:
+        _configured_model().analyse(_provider_prompt())
+    message = str(caught.value)
+    assert message == (
+        "Model HTTP 400: unsupported_parameter — "
+        '"Unsupported parameter: \'response_format\'." '
+        "(type: invalid_request_error; param: response_format)"
+    )
+    assert SECRET_KEY not in message
+    assert "Authorization" not in message
+    assert PROMPT_MARKER not in message
+
+
+def test_openai_compatible_model_surfaces_http_429_fields(
+    monkeypatch,
+):
+    payload = {
+        "error": {
+            "message": "Rate limit reached for requests.",
+            "type": "rate_limit_error",
+            "param": None,
+            "code": "rate_limit_exceeded",
+        }
+    }
+    _stub_http_error(
+        monkeypatch,
+        429,
+        json.dumps(payload).encode("utf-8"),
+    )
+    with pytest.raises(RuntimeError) as caught:
+        _configured_model().analyse(_provider_prompt())
+    message = str(caught.value)
+    assert message == (
+        "Model HTTP 429: rate_limit_exceeded — "
+        '"Rate limit reached for requests." '
+        "(type: rate_limit_error)"
+    )
+    assert SECRET_KEY not in message
+    assert "Authorization" not in message
+    assert PROMPT_MARKER not in message
+
+
+def test_openai_compatible_model_truncates_non_json_http_error(
+    monkeypatch,
+):
+    body = (
+        SECRET_KEY.encode("utf-8")
+        + b" <html>"
+        + (b"rate-limit-page " * 80)
+        + b"</html>"
+    )
+    _stub_http_error(monkeypatch, 400, body)
+    with pytest.raises(RuntimeError) as caught:
+        _configured_model().analyse(_provider_prompt())
+    message = str(caught.value)
+    assert message.startswith("Model HTTP 400: ")
+    assert SECRET_KEY not in message
+    assert "Authorization" not in message
+    assert PROMPT_MARKER not in message
+    assert len(message) <= len("Model HTTP 400: ") + ERROR_BODY_LIMIT + 3
+

@@ -2,6 +2,8 @@
 
 Calls production analytics only. Does not load ground truth, does
 not name scenarios, and does not narrate the measurements.
+temporal-v1 omits weekly series so the original contract stays
+reproducible. temporal-v2 adds weekly morning/afternoon rows.
 """
 
 from __future__ import annotations
@@ -11,7 +13,10 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.analytics.change import morning_afternoon_window
+from app.analytics.change import (
+    morning_afternoon_window,
+    weekly_morning_afternoon_outcomes,
+)
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
     session_outcomes_by_weekday,
@@ -20,6 +25,8 @@ from app.analytics.outcomes import (
 
 
 ALLOWED_CASE_IDS = frozenset({"case_a", "case_f"})
+EVIDENCE_CONTRACTS = frozenset({"temporal-v1", "temporal-v2"})
+DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
 
 
 def build_temporal_evidence(
@@ -28,16 +35,23 @@ def build_temporal_evidence(
     from_date: date,
     to_date: date,
     case_id: str,
+    version: str = DEFAULT_EVIDENCE_CONTRACT,
 ) -> dict:
-    """Assemble the Step 1 temporal evidence package.
+    """Assemble a temporal evidence package.
 
     ``case_id`` must be an opaque evaluation identifier, not a
-    scenario name.
+    scenario name. ``version`` selects the evidence contract.
     """
     if case_id not in ALLOWED_CASE_IDS:
         raise ValueError(
             "case_id must be an opaque evaluation identifier "
             f"(case_a or case_f); got {case_id!r}."
+        )
+    if version not in EVIDENCE_CONTRACTS:
+        raise ValueError(
+            "Unknown evidence contract "
+            f"{version!r}. Expected one of "
+            + ", ".join(sorted(EVIDENCE_CONTRACTS))
         )
 
     weekdays = session_outcomes_by_weekday(
@@ -60,7 +74,7 @@ def build_temporal_evidence(
         from_date=from_date,
         to_date=to_date,
     )
-    return {
+    package = {
         "case_id": case_id,
         "period": {
             "from": weekdays.from_date.isoformat(),
@@ -115,6 +129,16 @@ def build_temporal_evidence(
             "positive_rate_gap": window.positive_rate_gap,
         },
     }
+    if version == "temporal-v2":
+        weeks = weekly_morning_afternoon_outcomes(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        package["weekly_morning_afternoon"] = [
+            _weekly_row(group) for group in weeks.groups
+        ]
+    return package
 
 
 def evidence_ids(package: dict) -> set[str]:
@@ -125,6 +149,8 @@ def evidence_ids(package: dict) -> set[str]:
     for row in package.get("daypart_outcomes", ()):
         ids.add(row["id"])
     for row in package.get("weekday_daypart_outcomes", ()):
+        ids.add(row["id"])
+    for row in package.get("weekly_morning_afternoon", ()):
         ids.add(row["id"])
     window = package.get("morning_afternoon") or {}
     if "id" in window:
@@ -141,6 +167,19 @@ def evidence_ids(package: dict) -> set[str]:
 def serialize_evidence(package: dict) -> str:
     """Compact deterministic JSON for the model prompt."""
     return _dumps(package)
+
+
+def _weekly_row(group) -> dict:
+    week_start = group.week_start_date.isoformat()
+    return {
+        "id": f"week:{week_start}",
+        "week_start": week_start,
+        "morning_n": group.morning_session_count,
+        "morning_positive_rate": group.morning_positive_rate,
+        "afternoon_n": group.afternoon_session_count,
+        "afternoon_positive_rate": group.afternoon_positive_rate,
+        "positive_rate_gap": group.positive_rate_gap,
+    }
 
 
 def _outcome_counts(group) -> dict:

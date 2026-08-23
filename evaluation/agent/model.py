@@ -23,6 +23,7 @@ BASE_URL_ENV = "EVAL_AGENT_BASE_URL"
 MODEL_ENV = "EVAL_AGENT_MODEL"
 TIMEOUT_ENV = "EVAL_AGENT_TIMEOUT_SECONDS"
 DEFAULT_TIMEOUT_SECONDS = 120
+ERROR_BODY_LIMIT = 240
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,6 @@ class OpenAICompatibleModel:
         body = json.dumps(
             {
                 "model": self._model,
-                "temperature": 0,
                 "response_format": {"type": "json_object"},
                 "messages": [
                     {"role": "system", "content": prompt.system},
@@ -105,7 +105,11 @@ class OpenAICompatibleModel:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raise RuntimeError(
-                f"Model HTTP {exc.code} from configured provider."
+                format_provider_http_error(
+                    exc.code,
+                    _http_error_body(exc),
+                    secret=self._api_key,
+                )
             ) from None
 
         try:
@@ -147,6 +151,116 @@ def load_configured_model() -> AnalysisModel | None:
         model=model,
         timeout_seconds=timeout,
     )
+
+
+def format_provider_http_error(
+    status: int,
+    body: bytes,
+    *,
+    secret: str = "",
+) -> str:
+    """Summarise a non-2xx provider body without leaking secrets."""
+    text = _redact_secret(
+        body.decode("utf-8", errors="replace"),
+        secret,
+    )
+    error = _provider_error_object(text)
+    if error is not None:
+        message = _error_field(error, "message")
+        err_type = _error_field(error, "type")
+        code = _error_field(error, "code")
+        param = _error_field(error, "param")
+        if message is not None:
+            message = _clip(_redact_secret(message, secret))
+        return _compose_http_error(
+            status,
+            message=message,
+            err_type=err_type,
+            code=code,
+            param=param,
+        )
+    snippet = _clip(text) if text.strip() else None
+    if snippet:
+        return f"Model HTTP {status}: {snippet}"
+    return f"Model HTTP {status} from configured provider."
+
+
+def _http_error_body(exc: urllib.error.HTTPError) -> bytes:
+    if getattr(exc, "fp", None) is None:
+        return b""
+    try:
+        return exc.read()
+    except OSError:
+        return b""
+
+
+def _provider_error_object(text: str) -> dict | str | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if isinstance(error, (dict, str)):
+        return error
+    return None
+
+
+def _error_field(error: dict | str, name: str) -> str | None:
+    if isinstance(error, str):
+        if name != "message":
+            return None
+        stripped = error.strip()
+        return stripped or None
+    value = error.get(name)
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (str, int, float)):
+        text = str(value).strip()
+        return text or None
+    return None
+
+
+def _compose_http_error(
+    status: int,
+    *,
+    message: str | None,
+    err_type: str | None,
+    code: str | None,
+    param: str | None,
+) -> str:
+    lead = code or err_type
+    result = f"Model HTTP {status}"
+    if lead:
+        result = f"{result}: {lead}"
+    if message:
+        quoted = json.dumps(message, ensure_ascii=False)
+        if lead:
+            result = f"{result} — {quoted}"
+        else:
+            result = f"{result}: {quoted}"
+    extras: list[str] = []
+    if err_type and err_type != lead:
+        extras.append(f"type: {err_type}")
+    if param:
+        extras.append(f"param: {param}")
+    if extras:
+        result = f"{result} ({'; '.join(extras)})"
+    return result
+
+
+def _redact_secret(text: str, secret: str) -> str:
+    if not secret:
+        return text
+    return text.replace(secret, "[redacted]")
+
+
+def _clip(text: str, limit: int = ERROR_BODY_LIMIT) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit].rstrip() + "..."
 
 
 def missing_provider_message() -> str:
