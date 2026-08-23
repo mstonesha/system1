@@ -1,4 +1,4 @@
-"""CLI for Step 1 agent evaluation (Datasets A and F).
+"""CLI for agent evaluation (Datasets A, B, and F).
 
 Usage:
 
@@ -8,8 +8,14 @@ Usage:
     python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v2 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns --prompt-version temporal-v3 --dry-run
     python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v3 --dry-run
+    python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
+    python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1
+
+Scenario and prompt-version must be compatible. Temporal scenarios
+use temporal-v1/v2/v3. interruptions_dependencies uses
+dependencies-v1.
 
 Live runs require EVAL_AGENT_API_KEY, EVAL_AGENT_BASE_URL, and
 EVAL_AGENT_MODEL. Dry-run generates the scenario, builds evidence,
@@ -27,10 +33,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
+from evaluation.agent.contracts import (
+    SCENARIO_CASE_IDS,
+    require_case_contract,
+    require_compatible,
+)
 from evaluation.agent.evidence import (
-    ALLOWED_CASE_IDS,
-    build_temporal_evidence,
+    build_evidence,
     evidence_ids,
+    serialize_evidence,
 )
 from evaluation.agent.model import (
     AnalysisModel,
@@ -51,11 +62,6 @@ from evaluation.database import (
 )
 from evaluation.generate import DEFAULT_SEEDS, GENERATORS
 
-
-SCENARIO_CASE_IDS = {
-    "temporal_patterns": "case_a",
-    "noise_control": "case_f",
-}
 GROUND_TRUTH_DIR = (
     Path(__file__).resolve().parents[1] / "ground_truth"
 )
@@ -64,9 +70,10 @@ GROUND_TRUTH_DIR = (
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the evaluation-only temporal analysis harness "
-            "against Dataset A (temporal_patterns) or Dataset F "
-            "(noise_control)."
+            "Run the evaluation-only analysis harness. "
+            "Pair temporal_patterns or noise_control with "
+            "temporal-v1/v2/v3, and interruptions_dependencies "
+            "with dependencies-v1."
         )
     )
     parser.add_argument(
@@ -83,12 +90,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=PROMPT_VERSIONS,
         default=DEFAULT_PROMPT_VERSION,
         help=(
-            "Evidence and prompt contract. Default "
+            "Evidence and prompt contract. Must be compatible "
+            "with --scenario. Default "
             f"{DEFAULT_PROMPT_VERSION} preserves the original "
-            "baseline. temporal-v2 adds weekly "
+            "temporal baseline. temporal-v2 adds weekly "
             "morning/afternoon series. temporal-v3 keeps "
             "that evidence and revises the pattern-reasoning "
-            "instructions."
+            "instructions. dependencies-v1 uses interruption "
+            "outcomes and the bounded stuck-task drilldown."
         ),
     )
     parser.add_argument(
@@ -125,9 +134,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    case_id = SCENARIO_CASE_IDS[args.scenario]
-    if case_id not in ALLOWED_CASE_IDS:
-        print(f"Unsupported case_id: {case_id}", file=sys.stderr)
+    try:
+        case_id = require_compatible(
+            args.scenario,
+            args.prompt_version,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
     model: AnalysisModel | None = None
@@ -203,7 +216,8 @@ def run_case(
 
     Does not load or attach hidden ground truth.
     """
-    evidence = build_temporal_evidence(
+    require_case_contract(case_id, prompt_version)
+    evidence = build_evidence(
         db,
         from_date=from_date,
         to_date=to_date,
@@ -275,6 +289,59 @@ def _print_review(
         f"({period['timezone']})"
     )
     print(f"total_sessions: {period['total_sessions']}")
+    if "interruption_outcomes" in evidence:
+        _print_dependencies_review(evidence)
+    else:
+        _print_temporal_review(evidence)
+    evidence_bytes = len(
+        serialize_evidence(evidence).encode("utf-8")
+    )
+    prompt_chars = len(record["prompt"]["system"]) + len(
+        record["prompt"]["user"]
+    )
+    print(f"evidence_bytes: {evidence_bytes}")
+    print(f"prompt_characters: {prompt_chars}")
+    print(f"results: {results_path}")
+
+    if print_prompt:
+        print("--- model prompt (system) ---")
+        print(record["prompt"]["system"])
+        print("--- model prompt (user) ---")
+        print(record["prompt"]["user"])
+
+    analysis = record.get("analysis")
+    if analysis is not None:
+        _print_statements("observations", analysis["observations"])
+        _print_statements("patterns", analysis["patterns"])
+        _print_statements("hypotheses", analysis["hypotheses"])
+        _print_statements(
+            "insufficient_evidence",
+            analysis["insufficient_evidence"],
+        )
+        _print_statements(
+            "suggested_drilldowns",
+            analysis["suggested_drilldowns"],
+        )
+    elif record["parse_status"] not in {"dry_run"}:
+        print("structured analysis: unavailable")
+        if record.get("validation_errors"):
+            print("validation_errors:")
+            for error in record["validation_errors"]:
+                print(f"  - {error}")
+        raw = record.get("raw_response")
+        if raw:
+            print("--- raw response ---")
+            print(raw)
+
+    if ground_truth_text:
+        print(
+            "--- evaluator only: hidden ground truth "
+            "(not sent to the model) ---"
+        )
+        print(ground_truth_text.rstrip())
+
+
+def _print_temporal_review(evidence: dict) -> None:
     print(
         "groups: "
         f"weekday={len(evidence['weekday_outcomes'])} "
@@ -321,48 +388,39 @@ def _print_review(
                 f"afternoon_n={row['afternoon_n']} "
                 f"gap={row['positive_rate_gap']}"
             )
-    prompt_chars = len(record["prompt"]["system"]) + len(
-        record["prompt"]["user"]
-    )
-    print(f"prompt_characters: {prompt_chars}")
-    print(f"results: {results_path}")
 
-    if print_prompt:
-        print("--- model prompt (system) ---")
-        print(record["prompt"]["system"])
-        print("--- model prompt (user) ---")
-        print(record["prompt"]["user"])
 
-    analysis = record.get("analysis")
-    if analysis is not None:
-        _print_statements("observations", analysis["observations"])
-        _print_statements("patterns", analysis["patterns"])
-        _print_statements("hypotheses", analysis["hypotheses"])
-        _print_statements(
-            "insufficient_evidence",
-            analysis["insufficient_evidence"],
-        )
-        _print_statements(
-            "suggested_drilldowns",
-            analysis["suggested_drilldowns"],
-        )
-    elif record["parse_status"] not in {"dry_run"}:
-        print("structured analysis: unavailable")
-        if record.get("validation_errors"):
-            print("validation_errors:")
-            for error in record["validation_errors"]:
-                print(f"  - {error}")
-        raw = record.get("raw_response")
-        if raw:
-            print("--- raw response ---")
-            print(raw)
-
-    if ground_truth_text:
+def _print_dependencies_review(evidence: dict) -> None:
+    print("interruption_outcomes:")
+    for row in evidence["interruption_outcomes"]:
         print(
-            "--- evaluator only: hidden ground truth "
-            "(not sent to the model) ---"
+            f"  interrupted={row['interrupted']} "
+            f"n={row['n']} "
+            f"positive_rate={row['positive_rate']}"
         )
-        print(ground_truth_text.rstrip())
+    drilldown = evidence["stuck_drilldown"]
+    print("stuck_drilldown:")
+    print(
+        "  total_stuck_sessions="
+        f"{drilldown['total_stuck_sessions']}"
+    )
+    print(
+        "  total_distinct_stuck_tasks="
+        f"{drilldown['total_distinct_stuck_tasks']}"
+    )
+    print(
+        "  returned_task_count="
+        f"{drilldown['returned_task_count']}"
+    )
+    print(f"  limit={drilldown['limit']}")
+    print("  tasks:")
+    for row in drilldown["tasks"]:
+        print(
+            f"    {row['id']} "
+            f"n={row['stuck_session_count']} "
+            f"status={row['task_status']} "
+            f"title={row['title']}"
+        )
 
 
 def _print_group_table(

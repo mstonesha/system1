@@ -1,10 +1,14 @@
-"""Deterministic temporal evidence for evaluation cases A and F.
+"""Deterministic evidence packages for evaluation cases.
 
 Calls production analytics only. Does not load ground truth, does
 not name scenarios, and does not narrate the measurements.
+Does not parse or classify task titles.
+
 temporal-v1 omits weekly series so the original contract stays
 reproducible. temporal-v2 adds weekly morning/afternoon rows.
 temporal-v3 reuses the temporal-v2 evidence package unchanged.
+dependencies-v1 uses interruption outcomes and the bounded stuck
+task drilldown.
 """
 
 from __future__ import annotations
@@ -18,17 +22,27 @@ from app.analytics.change import (
     morning_afternoon_window,
     weekly_morning_afternoon_outcomes,
 )
+from app.analytics.drilldown import (
+    DEFAULT_LIMIT as STUCK_DRILLDOWN_LIMIT,
+    stuck_task_drilldown,
+)
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
+    session_outcomes_by_interruption,
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
 
 
-ALLOWED_CASE_IDS = frozenset({"case_a", "case_f"})
+ALLOWED_TEMPORAL_CASE_IDS = frozenset({"case_a", "case_f"})
+ALLOWED_DEPENDENCY_CASE_IDS = frozenset({"case_b"})
+ALLOWED_CASE_IDS = (
+    ALLOWED_TEMPORAL_CASE_IDS | ALLOWED_DEPENDENCY_CASE_IDS
+)
 EVIDENCE_CONTRACTS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
 )
+DEPENDENCY_CONTRACTS = frozenset({"dependencies-v1"})
 DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
 WEEKLY_EVIDENCE_VERSIONS = frozenset(
     {"temporal-v2", "temporal-v3"}
@@ -48,7 +62,7 @@ def build_temporal_evidence(
     ``case_id`` must be an opaque evaluation identifier, not a
     scenario name. ``version`` selects the evidence contract.
     """
-    if case_id not in ALLOWED_CASE_IDS:
+    if case_id not in ALLOWED_TEMPORAL_CASE_IDS:
         raise ValueError(
             "case_id must be an opaque evaluation identifier "
             f"(case_a or case_f); got {case_id!r}."
@@ -147,8 +161,117 @@ def build_temporal_evidence(
     return package
 
 
+def build_dependencies_evidence(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+    case_id: str,
+    version: str = "dependencies-v1",
+) -> dict:
+    """Assemble interruption and bounded stuck-task evidence.
+
+    Titles are passed through exactly as production returns them.
+    This builder does not parse or classify titles.
+    """
+    if case_id not in ALLOWED_DEPENDENCY_CASE_IDS:
+        raise ValueError(
+            "case_id must be an opaque evaluation identifier "
+            f"(case_b); got {case_id!r}."
+        )
+    if version not in DEPENDENCY_CONTRACTS:
+        raise ValueError(
+            "Unknown evidence contract "
+            f"{version!r}. Expected one of "
+            + ", ".join(sorted(DEPENDENCY_CONTRACTS))
+        )
+    interruptions = session_outcomes_by_interruption(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    drilldown = stuck_task_drilldown(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        limit=STUCK_DRILLDOWN_LIMIT,
+    )
+    return {
+        "case_id": case_id,
+        "period": {
+            "from": interruptions.from_date.isoformat(),
+            "to": interruptions.to_date.isoformat(),
+            "timezone": interruptions.timezone,
+            "total_sessions": interruptions.total_sessions,
+        },
+        "interruption_outcomes": [
+            {
+                "id": _interruption_id(group.interrupted),
+                "interrupted": group.interrupted,
+                **_outcome_counts(group),
+            }
+            for group in interruptions.groups
+        ],
+        "stuck_drilldown": {
+            "id": "stuck_drilldown",
+            "total_stuck_sessions": drilldown.total_stuck_sessions,
+            "total_distinct_stuck_tasks": (
+                drilldown.total_distinct_stuck_tasks
+            ),
+            "returned_task_count": drilldown.returned_task_count,
+            "limit": drilldown.limit,
+            "tasks": [
+                {
+                    "id": _stuck_task_id(row.task_id),
+                    "task_id": row.task_id,
+                    "title": row.title,
+                    "stuck_session_count": row.stuck_session_count,
+                    "first_stuck_date": (
+                        row.first_stuck_date.isoformat()
+                    ),
+                    "last_stuck_date": (
+                        row.last_stuck_date.isoformat()
+                    ),
+                    "task_status": row.task_status,
+                }
+                for row in drilldown.tasks
+            ],
+        },
+    }
+
+
+def build_evidence(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+    case_id: str,
+    version: str,
+) -> dict:
+    """Dispatch to the evidence builder for a prompt contract."""
+    if version in EVIDENCE_CONTRACTS:
+        return build_temporal_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id=case_id,
+            version=version,
+        )
+    if version in DEPENDENCY_CONTRACTS:
+        return build_dependencies_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id=case_id,
+            version=version,
+        )
+    raise ValueError(
+        f"Unknown evidence contract {version!r}."
+    )
+
+
 def evidence_ids(package: dict) -> set[str]:
-    """Return citeable ids present in a temporal evidence package."""
+    """Return citeable ids present in an evidence package."""
     ids: set[str] = set()
     for row in package.get("weekday_outcomes", ()):
         ids.add(row["id"])
@@ -167,6 +290,13 @@ def evidence_ids(package: dict) -> set[str]:
         ids.add(morning["id"])
     if "id" in afternoon:
         ids.add(afternoon["id"])
+    for row in package.get("interruption_outcomes", ()):
+        ids.add(row["id"])
+    drilldown = package.get("stuck_drilldown") or {}
+    if "id" in drilldown:
+        ids.add(drilldown["id"])
+    for row in drilldown.get("tasks") or ():
+        ids.add(row["id"])
     return ids
 
 
@@ -200,6 +330,14 @@ def _outcome_counts(group) -> dict:
         "negative_count": group.negative_count,
         "positive_rate": group.positive_rate,
     }
+
+
+def _interruption_id(interrupted: bool) -> str:
+    return f"interruption:{'true' if interrupted else 'false'}"
+
+
+def _stuck_task_id(task_id: int) -> str:
+    return f"stuck_task:{int(task_id)}"
 
 
 def _weekday_id(weekday: str) -> str:

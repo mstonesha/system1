@@ -12,6 +12,8 @@ import pytest
 from app.models import WorkSession
 from app.time import UTC
 from evaluation.agent.evidence import (
+    build_dependencies_evidence,
+    build_evidence,
     build_temporal_evidence,
     evidence_ids,
     serialize_evidence,
@@ -28,9 +30,11 @@ from evaluation.agent.model import (
 from evaluation.agent.prompt import (
     DEFAULT_PROMPT_VERSION,
     PROMPT_VERSION,
+    PROMPT_VERSION_DEPENDENCIES_V1,
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
+    SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
     SYSTEM_INSTRUCTIONS_V1,
     SYSTEM_INSTRUCTIONS_V2,
     SYSTEM_INSTRUCTIONS_V3,
@@ -49,12 +53,15 @@ AGENT_DIR = REPO_ROOT / "evaluation" / "agent"
 FORBIDDEN_IN_MODEL_INPUT = (
     "temporal_patterns",
     "noise_control",
+    "interruptions_dependencies",
     "dataset a",
+    "dataset b",
     "dataset f",
     "ground_truth",
     "expected_patterns",
     "expected_non_patterns",
     "agent_should",
+    "hr_tasks_have_materially_higher_stuck_rate",
     "monday_morning_is_a_strong_negative_exception",
     "no_robust_behavioural_pattern",
 )
@@ -102,8 +109,17 @@ def _add_completed(
     make_daily_task,
     local_started,
     outcome="progress",
+    *,
+    interrupted=False,
+    title=None,
+    task=None,
 ):
-    task = make_task()
+    if task is None:
+        task = (
+            make_task(title=title)
+            if title is not None
+            else make_task()
+        )
     daily_task = make_daily_task(
         task,
         target_date=local_started.date(),
@@ -117,6 +133,7 @@ def _add_completed(
         actual_duration_seconds=1500,
         session_state="completed",
         outcome=outcome,
+        interrupted=interrupted,
     )
     db.add(work_session)
     db.commit()
@@ -162,6 +179,76 @@ def _seed_temporal_sessions(db, make_task, make_daily_task):
     )
 
 
+def _seed_dependency_sessions(db, make_task, make_daily_task):
+    waiting = make_task(title="Await approval for budget sign-off")
+    notes = make_task(title="Write weekly notes")
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 10),
+        outcome="progress",
+        interrupted=False,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 11),
+        outcome="complete",
+        interrupted=False,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 10),
+        outcome="stuck",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 14),
+        outcome="paused",
+        interrupted=True,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 9),
+        outcome="stuck",
+        task=waiting,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 9),
+        outcome="stuck",
+        task=waiting,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 14, 9),
+        outcome="stuck",
+        task=waiting,
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 14, 14),
+        outcome="stuck",
+        task=notes,
+    )
+    return waiting, notes
+
+
 def _assert_no_model_input_leak(text: str) -> None:
     lowered = text.lower()
     for token in FORBIDDEN_IN_MODEL_INPUT:
@@ -194,11 +281,19 @@ def test_evidence_module_uses_production_analytics():
     assert "session_outcomes_by_weekday_daypart" in source
     assert "morning_afternoon_window" in source
     assert "weekly_morning_afternoon_outcomes" in text
+    assert "session_outcomes_by_interruption" in text
+    assert "stuck_task_drilldown" in text
     assert "evaluation.observe" not in text
     assert "yaml.safe_load" not in text
     assert "ground_truth" not in text
     assert "temporal_patterns" not in text
     assert "noise_control" not in text
+    assert "interruptions_dependencies" not in text
+    assert "parse_task_category" not in text
+    for path in AGENT_DIR.rglob("*.py"):
+        agent_text = path.read_text(encoding="utf-8")
+        assert "parse_task_category" not in agent_text, path
+        assert "evaluation.catalog" not in agent_text, path
 
 
 def test_prompt_and_run_case_do_not_load_ground_truth():
@@ -210,6 +305,7 @@ def test_prompt_and_run_case_do_not_load_ground_truth():
     assert "ground_truth" not in prompt_text
     assert "temporal_patterns" not in prompt_text
     assert "noise_control" not in prompt_text
+    assert "interruptions_dependencies" not in prompt_text
     assert "ground_truth" not in run_source
     assert "yaml" not in run_source
 
@@ -403,6 +499,8 @@ def test_temporal_v1_prompt_is_preserved():
         SYSTEM_INSTRUCTIONS_V1.lower()
     )
     assert "sample size" in SYSTEM_INSTRUCTIONS_V1.lower()
+    assert "dependencies-v1" not in SYSTEM_INSTRUCTIONS_V1
+    assert "stuck_task_drilldown" not in SYSTEM_INSTRUCTIONS_V1
     prompt = render_prompt({"case_id": "case_a"}, version="temporal-v1")
     assert prompt.version == PROMPT_VERSION_V1
     assert prompt.system == SYSTEM_INSTRUCTIONS_V1
@@ -429,6 +527,8 @@ def test_temporal_v2_prompt_is_preserved():
     assert "do not automatically invalidate" not in text
     assert "qualified pattern" not in text
     assert "temporal-v3" not in prompt.system
+    assert "dependencies-v1" not in prompt.system
+    assert "stuck_task_drilldown" not in prompt.system
     assert "temporal_patterns" not in prompt.system
     assert "noise_control" not in prompt.system
     _assert_no_model_input_leak(prompt.combined_text())
@@ -457,6 +557,8 @@ def test_temporal_v3_prompt_uses_converging_evidence():
     assert "temporal_patterns" not in prompt.system
     assert "noise_control" not in prompt.system
     assert "monday morning" not in text
+    assert "dependencies-v1" not in prompt.system
+    assert "stuck_task_drilldown" not in prompt.system
     _assert_no_model_input_leak(prompt.combined_text())
 
 
@@ -760,6 +862,405 @@ def test_run_case_dry_run_and_stub_do_not_need_live_api(
     assert v3["prompt"]["system"] != v2["prompt"]["system"]
     _assert_no_model_input_leak(v3["prompt"]["system"])
     _assert_no_model_input_leak(v3["prompt"]["user"])
+
+
+def test_dependencies_v1_can_be_selected():
+    from evaluation.agent.prompt import PROMPT_VERSIONS
+
+    assert PROMPT_VERSION_DEPENDENCIES_V1 == "dependencies-v1"
+    assert PROMPT_VERSION_DEPENDENCIES_V1 in PROMPT_VERSIONS
+    prompt = render_prompt(
+        {"case_id": "case_b"},
+        version="dependencies-v1",
+    )
+    assert prompt.version == "dependencies-v1"
+    assert prompt.system == SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1
+    assert prompt.system is not SYSTEM_INSTRUCTIONS_V3
+
+
+def test_require_compatible_routes_dataset_b_to_case_b():
+    from evaluation.agent.contracts import require_compatible
+
+    assert require_compatible(
+        "interruptions_dependencies",
+        "dependencies-v1",
+    ) == "case_b"
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "interruptions_dependencies",
+            "temporal-v3",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "temporal_patterns",
+            "dependencies-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "noise_control",
+            "dependencies-v1",
+        )
+
+
+def test_cli_rejects_incompatible_scenario_and_contract(capsys):
+    from evaluation.agent.runner import main as agent_main
+
+    assert agent_main(
+        [
+            "--scenario",
+            "interruptions_dependencies",
+            "--prompt-version",
+            "temporal-v3",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+    assert "dependencies-v1" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "temporal_patterns",
+            "--prompt-version",
+            "dependencies-v1",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "interruptions_dependencies",
+            "--dry-run",
+        ]
+    ) == 2
+
+
+def test_dependencies_evidence_uses_production_analytics(
+    db,
+    make_task,
+    make_daily_task,
+    monkeypatch,
+):
+    from app.analytics.drilldown import DEFAULT_LIMIT
+    from evaluation.agent import evidence as evidence_mod
+
+    waiting, notes = _seed_dependency_sessions(
+        db,
+        make_task,
+        make_daily_task,
+    )
+    calls: list[str] = []
+    limits: list[int] = []
+
+    def wrap(name, fn):
+        def inner(*args, **kwargs):
+            calls.append(name)
+            if "limit" in kwargs:
+                limits.append(kwargs["limit"])
+            return fn(*args, **kwargs)
+
+        return inner
+
+    monkeypatch.setattr(
+        evidence_mod,
+        "session_outcomes_by_interruption",
+        wrap(
+            "interruptions",
+            evidence_mod.session_outcomes_by_interruption,
+        ),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "stuck_task_drilldown",
+        wrap(
+            "drilldown",
+            evidence_mod.stuck_task_drilldown,
+        ),
+    )
+    evidence = build_dependencies_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_b",
+    )
+    assert calls == ["interruptions", "drilldown"]
+    assert limits == [DEFAULT_LIMIT]
+    dispatched = build_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_b",
+        version="dependencies-v1",
+    )
+    assert dispatched == evidence
+    source = inspect.getsource(build_dependencies_evidence)
+    assert "session_outcomes_by_interruption" in source
+    assert "stuck_task_drilldown" in source
+    assert "parse_task_category" not in source
+    assert "positive_rate =" not in source
+    assert waiting.title in serialize_evidence(evidence)
+    assert notes.title in serialize_evidence(evidence)
+
+
+def test_dependencies_evidence_is_opaque_and_reconciles(
+    db,
+    make_task,
+    make_daily_task,
+):
+    from app.analytics.drilldown import DEFAULT_LIMIT
+    from app.analytics.drilldown import stuck_task_drilldown
+    from app.analytics.outcomes import session_outcomes_by_interruption
+
+    waiting, notes = _seed_dependency_sessions(
+        db,
+        make_task,
+        make_daily_task,
+    )
+    from_date = date(2026, 1, 12)
+    to_date = date(2026, 1, 16)
+    production_int = session_outcomes_by_interruption(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    production_stuck = stuck_task_drilldown(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        limit=DEFAULT_LIMIT,
+    )
+    evidence = build_dependencies_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_b",
+    )
+    assert evidence["case_id"] == "case_b"
+    assert set(evidence) == {
+        "case_id",
+        "period",
+        "interruption_outcomes",
+        "stuck_drilldown",
+    }
+    flags = {
+        row["interrupted"] for row in evidence["interruption_outcomes"]
+    }
+    assert flags == {False, True}
+    ids = {row["id"] for row in evidence["interruption_outcomes"]}
+    assert ids == {"interruption:false", "interruption:true"}
+    by_flag = {
+        group.interrupted: group for group in production_int.groups
+    }
+    for row in evidence["interruption_outcomes"]:
+        group = by_flag[row["interrupted"]]
+        assert row["n"] == group.session_count
+        assert row["progress"] == group.progress_count
+        assert row["complete"] == group.complete_count
+        assert row["stuck"] == group.stuck_count
+        assert row["paused"] == group.paused_count
+        assert row["abandoned"] == group.abandoned_count
+        assert row["positive_count"] == group.positive_count
+        assert row["negative_count"] == group.negative_count
+        assert row["positive_rate"] == group.positive_rate
+        assert (
+            row["progress"] + row["complete"]
+            == row["positive_count"]
+        )
+        assert (
+            row["stuck"] + row["paused"] + row["abandoned"]
+            == row["negative_count"]
+        )
+        assert (
+            row["positive_count"] + row["negative_count"]
+            == row["n"]
+        )
+        assert "category" not in row
+        assert "cluster" not in row
+        assert "effect" not in row
+    drilldown = evidence["stuck_drilldown"]
+    assert drilldown["id"] == "stuck_drilldown"
+    assert drilldown["limit"] == DEFAULT_LIMIT
+    assert drilldown["total_stuck_sessions"] == (
+        production_stuck.total_stuck_sessions
+    )
+    assert drilldown["total_distinct_stuck_tasks"] == (
+        production_stuck.total_distinct_stuck_tasks
+    )
+    assert drilldown["returned_task_count"] == (
+        production_stuck.returned_task_count
+    )
+    assert drilldown["returned_task_count"] == len(drilldown["tasks"])
+    assert drilldown["returned_task_count"] <= drilldown["limit"]
+    production_by_id = {
+        row.task_id: row for row in production_stuck.tasks
+    }
+    for row in drilldown["tasks"]:
+        produced = production_by_id[row["task_id"]]
+        assert row["id"] == f"stuck_task:{row['task_id']}"
+        assert row["title"] == produced.title
+        assert row["stuck_session_count"] == (
+            produced.stuck_session_count
+        )
+        assert row["first_stuck_date"] == (
+            produced.first_stuck_date.isoformat()
+        )
+        assert row["last_stuck_date"] == (
+            produced.last_stuck_date.isoformat()
+        )
+        assert row["task_status"] == produced.task_status
+        assert "category" not in row
+        assert "cluster" not in row
+        assert "hr_related" not in row
+    titles = {row["title"] for row in drilldown["tasks"]}
+    assert waiting.title in titles
+    assert notes.title in titles
+    known = evidence_ids(evidence)
+    assert "interruption:false" in known
+    assert "interruption:true" in known
+    assert "stuck_drilldown" in known
+    assert f"stuck_task:{waiting.id}" in known
+    blob = serialize_evidence(evidence)
+    _assert_no_model_input_leak(blob)
+    assert "weekday_outcomes" not in evidence
+    with pytest.raises(ValueError, match="opaque"):
+        build_dependencies_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="interruptions_dependencies",
+        )
+    with pytest.raises(ValueError, match="opaque"):
+        build_temporal_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="case_b",
+        )
+
+
+def test_dependencies_prompt_explains_drilldown_and_causation():
+    prompt = render_prompt(
+        {"case_id": "case_b"},
+        version="dependencies-v1",
+    )
+    text = prompt.system.lower()
+    assert "this analysis uses contract dependencies-v1" in text
+    assert "frequency- and recency-biased" in text
+    assert "not a random sample" in text
+    assert "not a representative sample" in text
+    assert "repeated or recent stuck" in text
+    assert "total_stuck_sessions" in text
+    assert "total_distinct_stuck_tasks" in text
+    assert "returned_task_count" in text
+    assert "association is not causation" in text
+    assert "does not establish that interruptions caused" in text
+    assert "do not combine separate observations" in text
+    assert "two separate observed relationships" in text
+    assert "does not establish whether they are related" in text
+    assert "tentative semantic hypothesis" in text
+    assert "not a claim of a verified task category" in text
+    assert "denominator-based category statistics" in text
+    assert "arbitrary sql" in text
+    assert "patterns to be empty" in text
+    assert "interruptions_dependencies" not in prompt.system
+    assert "dataset b" not in text
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_run_case_dependencies_dry_run_does_not_call_model(
+    db,
+    make_task,
+    make_daily_task,
+    monkeypatch,
+):
+    waiting, _notes = _seed_dependency_sessions(
+        db,
+        make_task,
+        make_daily_task,
+    )
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("live model must not be called")
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fail_urlopen,
+    )
+    with pytest.raises(ValueError, match="not compatible"):
+        run_case(
+            db,
+            case_id="case_b",
+            from_date=date(2026, 1, 12),
+            to_date=date(2026, 1, 16),
+            dry_run=True,
+            model=None,
+            prompt_version="temporal-v1",
+        )
+    record = run_case(
+        db,
+        case_id="case_b",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=True,
+        model=None,
+        prompt_version="dependencies-v1",
+    )
+    assert record["parse_status"] == "dry_run"
+    assert record["raw_response"] is None
+    assert record["case_id"] == "case_b"
+    assert record["prompt_version"] == "dependencies-v1"
+    assert "ground_truth" not in record
+    titles = [
+        row["title"]
+        for row in record["evidence"]["stuck_drilldown"]["tasks"]
+    ]
+    assert waiting.title in titles
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    _assert_no_model_input_leak(persisted)
+    stub = StubAnalysisModel(
+        json.dumps(
+            {
+                "observations": [
+                    {
+                        "statement": "Interrupted sessions differ.",
+                        "evidence_refs": ["interruption:true"],
+                    }
+                ],
+                "patterns": [],
+                "hypotheses": [],
+                "insufficient_evidence": [
+                    {
+                        "statement": "Unknown task cited.",
+                        "evidence_refs": ["stuck_task:0"],
+                    }
+                ],
+                "suggested_drilldowns": [],
+            }
+        )
+    )
+    live = run_case(
+        db,
+        case_id="case_b",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=False,
+        model=stub,
+        prompt_version="dependencies-v1",
+    )
+    assert live["parse_status"] == "ok"
+    known = evidence_ids(live["evidence"])
+    parsed = parse_agent_analysis(
+        live["raw_response"],
+        known_ids=known,
+    )
+    assert "stuck_task:0" not in known
+    assert parsed.unknown_evidence_refs == ("stuck_task:0",)
 
 
 def test_cli_refuses_development_database(monkeypatch):

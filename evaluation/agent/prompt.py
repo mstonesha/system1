@@ -1,9 +1,9 @@
-"""Evaluation prompts for temporal evidence packages.
+"""Evaluation prompts for temporal and dependency evidence packages.
 
 Instructions describe how to use the supplied measurements.
 They must not name scenarios, plant conclusions, or include
-hidden ground truth. temporal-v1 and temporal-v2 are preserved
-unchanged.
+hidden ground truth. temporal-v1, temporal-v2, and temporal-v3
+are preserved unchanged.
 """
 
 from __future__ import annotations
@@ -16,12 +16,14 @@ from evaluation.agent.evidence import serialize_evidence
 PROMPT_VERSION_V1 = "temporal-v1"
 PROMPT_VERSION_V2 = "temporal-v2"
 PROMPT_VERSION_V3 = "temporal-v3"
+PROMPT_VERSION_DEPENDENCIES_V1 = "dependencies-v1"
 PROMPT_VERSION = PROMPT_VERSION_V1
 DEFAULT_PROMPT_VERSION = PROMPT_VERSION_V1
 PROMPT_VERSIONS = (
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
+    PROMPT_VERSION_DEPENDENCIES_V1,
 )
 
 SYSTEM_INSTRUCTIONS_V1 = """\
@@ -326,10 +328,178 @@ Return JSON only, with no markdown fences, matching:
 }
 """
 
+SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1 = """\
+This analysis uses contract dependencies-v1.
+
+You are analysing committed work-session outcomes for a single \
+bounded period. Use only the supplied evidence package. Do not use \
+outside knowledge or assumptions about how the data were generated.
+
+The package contains interruption-grouped session outcomes and a \
+bounded stuck-task drilldown. Task titles are visible evidence. \
+They are ordinary language, not verified category fields.
+
+Return a JSON object with these lists:
+
+observations
+An observation is a directly measured fact in the supplied \
+evidence. Rankings, aggregate differences, and isolated subgroup \
+differences may be reported as observations. Do not imply \
+causation.
+
+patterns
+A pattern is a broader relationship supported by converging \
+evidence rather than one isolated statistic. No single factor is \
+automatically decisive. Consider jointly:
+
+- effect size
+- sample size
+- repetition
+- concentration
+- consistency across relevant views
+- alternative explanations
+- limitations of the supplied evidence
+
+A pattern need not be universal. When the evidence is broadly \
+convergent but contains genuine exceptions or variability, state \
+a qualified pattern. That is preferable to claiming the \
+relationship always holds, or to concluding that no pattern \
+exists because some slices differ.
+
+Avoid promoting a result to patterns when support comes mainly \
+from a small aggregate difference, one ranking, very small \
+subgroups, or one isolated extreme cell.
+
+It is explicitly acceptable for patterns to be empty when the \
+evidence does not justify one.
+
+hypotheses
+Tentative possible explanations that go beyond what is directly \
+measured. Distinguish them clearly from observations and \
+patterns. Leave this list empty unless a cautious interpretation \
+is warranted. You are not required to propose a hypothesis.
+
+A title containing words suggestive of approval, waiting, \
+dependencies, or similar concepts may justify a tentative \
+semantic hypothesis about the nature of stuck work. That is not \
+a claim of a verified task category or a verified cause. Title \
+interpretation is not ground truth. Do not infer information \
+that is absent from the title. Frame semantic similarity \
+cautiously.
+
+Good framing: several of the repeatedly stuck tasks contain \
+approval/waiting-related language, suggesting a possible \
+dependency-related cluster.
+
+Bad framing: inventing a category rate such as a named group \
+having a 44% stuck rate, unless that category and rate were \
+actually supplied.
+
+Do not invent denominator-based category statistics from the \
+bounded top-N drilldown.
+
+insufficient_evidence
+Tempting but weak claims; small-sample groups; differences that \
+are not stable enough to elevate to patterns; causal \
+explanations that the supplied evidence does not support; \
+representative claims that the bounded drilldown cannot justify.
+
+suggested_drilldowns
+Additional bounded, deterministic analysis that would materially \
+resolve ambiguity. Leave this list empty unless a specific \
+further slice would change the conclusion. Do not request more \
+data for its own sake. Do not request arbitrary SQL, database \
+access, or unbounded exports.
+
+You may suggest further bounded slices of the same kind of \
+evidence. Examples of the kind of request that can be useful, \
+without requiring any specific one: interruption outcomes within \
+the repeatedly stuck task set; stuck rates by a verified task \
+category if such structured metadata exists; repeated-stuck \
+concentration over another bounded period; interruption rates \
+for tasks with repeated stuck outcomes.
+
+Stuck-task drilldown semantics:
+The stuck_task_drilldown is bounded. It is ranked toward tasks \
+with repeated or recent stuck sessions, so it is frequency- and \
+recency-biased. It is not a random sample. It is not a \
+representative sample of all tasks.
+
+Seeing similar task titles repeatedly in this drilldown may \
+support an observation that repeated stuck work is concentrated \
+among tasks sharing visible characteristics.
+
+It does not justify claims such as most tasks having that \
+characteristic, or that this characteristic represents most \
+work overall.
+
+Use the supplied envelope fields when judging how much weight \
+to place on the displayed tasks: total_stuck_sessions, \
+total_distinct_stuck_tasks, returned_task_count, and limit.
+
+Association is not causation:
+An observed relationship between interruption status and \
+outcomes does not establish that interruptions caused the \
+poorer outcomes.
+
+Seeing a group of repeatedly stuck task titles does not \
+establish why those tasks became stuck.
+
+Do not combine separate observations into a causal story \
+unless the supplied evidence actually links them.
+
+If interrupted sessions have poorer outcomes and repeatedly \
+stuck tasks share similar title language, do not infer that \
+interruptions caused that stuck work unless evidence explicitly \
+links interruption status to those tasks.
+
+Where appropriate, say: these are two separate observed \
+relationships; the supplied evidence does not establish whether \
+they are related.
+
+Rules:
+- Consider sample size (n) whenever interpreting a rate.
+- Consider effect size, not only the direction of a difference.
+- Do not declare the group with the highest observed rate \
+inherently "best".
+- Treat small subgroups cautiously.
+- Avoid causal language unless causality is directly supported \
+by the supplied evidence.
+- Explicitly say when evidence is insufficient.
+- Do not invent explanations.
+- Do not extrapolate beyond the observed period.
+- Not every question has an interesting answer.
+- It is acceptable and often preferable to conclude that no \
+robust pattern is supported.
+
+Where practical, cite evidence ids from the package in \
+evidence_refs.
+
+Return JSON only, with no markdown fences, matching:
+{
+  "observations": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "patterns": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "hypotheses": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "insufficient_evidence": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "suggested_drilldowns": [
+    {"statement": "...", "evidence_refs": []}
+  ]
+}
+"""
+
 _SYSTEM_BY_VERSION = {
     PROMPT_VERSION_V1: SYSTEM_INSTRUCTIONS_V1,
     PROMPT_VERSION_V2: SYSTEM_INSTRUCTIONS_V2,
     PROMPT_VERSION_V3: SYSTEM_INSTRUCTIONS_V3,
+    PROMPT_VERSION_DEPENDENCIES_V1: SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
 }
 
 

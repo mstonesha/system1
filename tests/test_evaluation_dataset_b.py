@@ -1,4 +1,5 @@
 import inspect
+import json
 from datetime import date
 from pathlib import Path
 
@@ -553,3 +554,131 @@ def test_analytics_dataset_b_stuck_drilldown_is_bounded(
     }
     assert forbidden.isdisjoint(sample.__dataclass_fields__)
     assert forbidden.isdisjoint(sample.tasks[0].__dataclass_fields__)
+
+
+def test_agent_dependencies_evidence_hides_scenario_and_ground_truth(
+    generated_eval,
+    eval_db,
+):
+    from app.analytics.drilldown import DEFAULT_LIMIT
+    from evaluation.agent.evidence import (
+        build_dependencies_evidence,
+        evidence_ids,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+    from evaluation.agent.runner import run_case
+
+    result = generated_eval["result"]
+    production_int = session_outcomes_by_interruption(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    production_stuck = stuck_task_drilldown(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    evidence = build_dependencies_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_b",
+    )
+    assert evidence["case_id"] == "case_b"
+    assert evidence["period"]["from"] == result.start_date.isoformat()
+    assert evidence["period"]["to"] == result.end_date.isoformat()
+    assert evidence["period"]["total_sessions"] == (
+        production_int.total_sessions
+    )
+    assert evidence["period"]["total_sessions"] == (
+        result.work_session_count
+    )
+    by_flag = {
+        group.interrupted: group for group in production_int.groups
+    }
+    assert set(by_flag) == {False, True}
+    for row in evidence["interruption_outcomes"]:
+        group = by_flag[row["interrupted"]]
+        assert row["n"] == group.session_count
+        assert (
+            row["progress"] + row["complete"]
+            == row["positive_count"]
+        )
+        assert (
+            row["stuck"] + row["paused"] + row["abandoned"]
+            == row["negative_count"]
+        )
+        assert (
+            row["positive_count"] + row["negative_count"]
+            == row["n"]
+        )
+        assert row["positive_rate"] == group.positive_rate
+    drilldown = evidence["stuck_drilldown"]
+    assert drilldown["limit"] == DEFAULT_LIMIT
+    assert drilldown["limit"] == production_stuck.limit
+    assert drilldown["total_stuck_sessions"] == (
+        production_stuck.total_stuck_sessions
+    )
+    assert drilldown["total_distinct_stuck_tasks"] == (
+        production_stuck.total_distinct_stuck_tasks
+    )
+    assert drilldown["returned_task_count"] == (
+        production_stuck.returned_task_count
+    )
+    assert drilldown["returned_task_count"] == drilldown["limit"]
+    assert [
+        row["title"] for row in drilldown["tasks"]
+    ] == [row.title for row in production_stuck.tasks]
+    assert [
+        row["task_id"] for row in drilldown["tasks"]
+    ] == [row.task_id for row in production_stuck.tasks]
+    for row in drilldown["tasks"]:
+        assert "category" not in row
+        assert "cluster" not in row
+        assert "hr_related" not in row
+    known = evidence_ids(evidence)
+    assert "interruption:false" in known
+    assert "interruption:true" in known
+    assert "stuck_drilldown" in known
+    assert drilldown["tasks"][0]["id"] in known
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(
+        evidence,
+        version="dependencies-v1",
+    ).combined_text()
+    for token in (
+        "interruptions_dependencies",
+        "expected_patterns",
+        "expected_non_patterns",
+        "hr_tasks_have_materially_higher_stuck_rate",
+        "agent_should",
+        "ground_truth",
+        "dataset b",
+    ):
+        assert token not in blob.lower()
+        assert token not in prompt.lower()
+    record = run_case(
+        eval_db,
+        case_id="case_b",
+        from_date=result.start_date,
+        to_date=result.end_date,
+        dry_run=True,
+        model=None,
+        prompt_version="dependencies-v1",
+    )
+    assert record["case_id"] == "case_b"
+    assert record["parse_status"] == "dry_run"
+    assert record["raw_response"] is None
+    assert "ground_truth" not in record
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    for token in (
+        "interruptions_dependencies",
+        "expected_patterns",
+        "hr_tasks_have_materially_higher_stuck_rate",
+        "ground_truth",
+    ):
+        assert token not in persisted.lower()
