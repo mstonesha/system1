@@ -13,6 +13,7 @@ from app.analytics.outcomes import (
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
+from app.analytics.task_age import task_abandonment_by_execution_age
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.age import AGE_BUCKETS
@@ -468,6 +469,59 @@ def test_analytics_exposes_dataset_f_small_interruption_gap(
         "confidence",
         "recommendation",
         "interruption_penalty",
+    }
+    assert forbidden.isdisjoint(
+        analysis.__dataclass_fields__
+    )
+
+
+def test_analytics_exposes_dataset_f_noisy_age_buckets(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    analysis = task_abandonment_by_execution_age(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    rates = [
+        group.abandonment_rate for group in analysis.groups
+    ]
+    by_bucket = {
+        group.age_bucket: group for group in analysis.groups
+    }
+    assert analysis.groups
+    assert all(
+        group.terminal_task_count > 0
+        for group in analysis.groups
+    )
+    young_n = sum(
+        by_bucket[name].terminal_task_count
+        for name in ("0-2", "3-7")
+        if name in by_bucket
+    )
+    young_abandoned = sum(
+        by_bucket[name].abandoned_count
+        for name in ("0-2", "3-7")
+        if name in by_bucket
+    )
+    young_rate = young_abandoned / young_n
+    old = by_bucket["31+"]
+    assert old.abandonment_rate < young_rate + 0.18
+    rising = all(
+        rates[index + 1] + 0.02 >= rates[index]
+        for index in range(len(rates) - 1)
+    )
+    assert not rising or old.abandonment_rate < 0.40
+    forbidden = {
+        "risk",
+        "threshold",
+        "warning",
+        "significance",
+        "confidence",
+        "recommendation",
+        "likely_to_fail",
     }
     assert forbidden.isdisjoint(
         analysis.__dataclass_fields__

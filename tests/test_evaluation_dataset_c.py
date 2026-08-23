@@ -8,6 +8,11 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analytics.task_age import (
+    classify_execution_age_days,
+    task_abandonment_by_execution_age,
+    terminal_tasks_with_execution_age,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.age import AGE_BUCKETS
@@ -422,3 +427,111 @@ def test_some_tasks_skip_days_on_today(eval_db, terminals):
         if span_days + 1 > len(dailies) + 2:
             gapped += 1
     assert gapped >= 10
+
+
+def test_analytics_recovers_dataset_c_age_gradient(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    analysis = task_abandonment_by_execution_age(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    by_bucket = {
+        group.age_bucket: group for group in analysis.groups
+    }
+    assert [group.age_bucket for group in analysis.groups] == [
+        "0-2",
+        "3-7",
+        "8-14",
+        "15-30",
+        "31+",
+    ]
+    young_n = (
+        by_bucket["0-2"].terminal_task_count
+        + by_bucket["3-7"].terminal_task_count
+    )
+    young_abandoned = (
+        by_bucket["0-2"].abandoned_count
+        + by_bucket["3-7"].abandoned_count
+    )
+    young_rate = young_abandoned / young_n
+    old = by_bucket["31+"]
+    assert old.abandonment_rate - young_rate >= 0.28
+    assert old.abandonment_rate > 0.40
+    assert young_rate < 0.18
+    assert old.completed_count >= 8
+    assert (
+        by_bucket["0-2"].abandoned_count
+        + by_bucket["3-7"].abandoned_count
+        >= 2
+    )
+    forbidden = {
+        "risk",
+        "threshold",
+        "warning",
+        "significance",
+        "confidence",
+        "recommendation",
+        "likely_to_fail",
+    }
+    assert forbidden.isdisjoint(
+        analysis.__dataclass_fields__
+    )
+
+
+def test_analytics_execution_age_beats_created_at_on_dataset_c(
+    generated_eval,
+    eval_db,
+):
+    from zoneinfo import ZoneInfo
+
+    result = generated_eval["result"]
+    details = terminal_tasks_with_execution_age(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    zone = ZoneInfo(get_settings().timezone)
+
+    def _rate_for(age_days, predicate):
+        matched = [
+            row
+            for row in details
+            if predicate(age_days(row))
+        ]
+        assert matched
+        abandoned = sum(
+            1
+            for row in matched
+            if row.terminal_outcome == "abandoned"
+        )
+        return abandoned / len(matched)
+
+    def execution_age(row):
+        return row.execution_age_days
+
+    def created_age(row):
+        task = eval_db.get(Task, row.task_id)
+        created = task.created_at.astimezone(zone).date()
+        return max(0, (row.terminal_date - created).days)
+
+    exec_gap = _rate_for(
+        execution_age,
+        lambda days: days >= 31,
+    ) - _rate_for(
+        execution_age,
+        lambda days: days <= 7,
+    )
+    created_gap = _rate_for(
+        created_age,
+        lambda days: days >= 31,
+    ) - _rate_for(
+        created_age,
+        lambda days: days <= 7,
+    )
+    assert exec_gap >= 0.28
+    assert exec_gap > created_gap + 0.06
+    assert classify_execution_age_days(7) == "3-7"

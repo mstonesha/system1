@@ -1,6 +1,10 @@
-"""Typed results for deterministic session-outcome analysis.
+"""Typed results for deterministic analytics.
 
-Weekday numbering is ISO 8601: Monday=1 through Sunday=7.
+Session-outcome families use ISO 8601 weekday numbers
+(Monday=1 through Sunday=7).
+
+Task-age abandonment uses local calendar-day execution age
+from first qualifying Today appearance to terminal date.
 
 Rates are unrounded floating-point proportions in [0, 1],
 not percentages. Rounding belongs at presentation
@@ -117,3 +121,33 @@ class OutcomeAnalysis[GroupT]:
     timezone: str
     total_sessions: int
     groups: tuple[GroupT, ...]
+
+
+@dataclass(frozen=True)
+class TaskAgeBucket:
+    age_bucket: str
+    min_days: int
+    max_days: int | None
+    terminal_task_count: int
+    completed_count: int
+    abandoned_count: int
+    abandonment_rate: float
+    completion_rate: float
+
+
+@dataclass(frozen=True)
+class TaskAgeAnalysis:
+    from_date: date
+    to_date: date
+    timezone: str
+    total_terminal_tasks: int
+    groups: tuple[TaskAgeBucket, ...]
+
+
+@dataclass(frozen=True)
+class TerminalTaskAge:
+    task_id: int
+    first_today_date: date
+    terminal_date: date
+    execution_age_days: int
+    terminal_outcome: str
