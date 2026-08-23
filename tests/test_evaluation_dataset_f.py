@@ -12,6 +12,7 @@ from app.analytics.change import (
     rolling_window_dates,
     weekly_morning_afternoon_outcomes,
 )
+from app.analytics.drilldown import stuck_task_drilldown
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
     session_outcomes_by_interruption,
@@ -702,3 +703,25 @@ def test_analytics_dataset_f_morning_afternoon_stays_noisy(
     ) <= 0.18
     assert "behaviour_changed" not in full.__dataclass_fields__
     assert "phase" not in weeks.__dataclass_fields__
+
+
+def test_analytics_dataset_f_stuck_drilldown_is_observational(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    sample = stuck_task_drilldown(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    titles = [row.title for row in sample.tasks]
+    assert sample.tasks
+    assert sample.returned_task_count <= sample.limit
+    assert sample.returned_task_count <= sample.total_distinct_stuck_tasks
+    assert sample.total_stuck_sessions >= sample.total_distinct_stuck_tasks
+    assert all(title == row.title for row, title in zip(sample.tasks, titles))
+    assert "category" not in sample.__dataclass_fields__
+    assert "hr_related" not in sample.__dataclass_fields__
+    assert "cluster" not in sample.tasks[0].__dataclass_fields__
+    assert "description" not in sample.tasks[0].__dataclass_fields__

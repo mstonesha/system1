@@ -8,6 +8,7 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analytics.drilldown import stuck_task_drilldown
 from app.analytics.outcomes import (
     session_outcomes_by_interruption,
 )
@@ -506,3 +507,49 @@ def test_analytics_exposes_dataset_b_interruption_gap(
     assert forbidden.isdisjoint(
         uninterrupted.__dataclass_fields__
     )
+
+
+def test_analytics_dataset_b_stuck_drilldown_is_bounded(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    sample = stuck_task_drilldown(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    titles = [row.title for row in sample.tasks]
+    assert sample.returned_task_count == sample.limit
+    assert sample.total_distinct_stuck_tasks > sample.returned_task_count
+    assert sample.total_stuck_sessions >= sample.total_distinct_stuck_tasks
+    assert any(
+        "Await contract amendment" in title for title in titles
+    )
+    assert any(
+        "Await hiring-manager response" in title for title in titles
+    )
+    assert any(
+        "Chase reference response" in title for title in titles
+    )
+    wider = stuck_task_drilldown(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        limit=50,
+    )
+    assert any(
+        not row.title.startswith("[HR]") for row in wider.tasks
+    )
+    assert all(
+        row.stuck_session_count >= 1 for row in sample.tasks
+    )
+    forbidden = {
+        "category",
+        "hr_related",
+        "cluster",
+        "inferred_topic",
+        "waiting_on",
+    }
+    assert forbidden.isdisjoint(sample.__dataclass_fields__)
+    assert forbidden.isdisjoint(sample.tasks[0].__dataclass_fields__)

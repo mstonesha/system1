@@ -13,6 +13,10 @@ Morning-versus-afternoon windows measure committed session
 outcomes in caller-chosen local date ranges. They do not
 label periods as historical, recent, or changed.
 
+Stuck-task drill-down returns a bounded sample of Tasks that
+have committed stuck sessions in a local date range. Titles
+are stored text; this layer does not parse or classify them.
+
 Rates are unrounded floating-point proportions in [0, 1],
 not percentages. Rounding belongs at presentation
 boundaries, not in this layer.
@@ -289,3 +293,33 @@ class WeeklyMorningAfternoonAnalysis:
     to_date: date
     timezone: str
     groups: tuple[WeeklyMorningAfternoonGroup, ...]
+
+
+@dataclass(frozen=True)
+class StuckTaskObservation:
+    """One Task represented among stuck sessions in the period."""
+
+    task_id: int
+    title: str
+    stuck_session_count: int
+    first_stuck_date: date
+    last_stuck_date: date
+    task_status: str
+
+
+@dataclass(frozen=True)
+class StuckTaskDrilldown:
+    """Bounded sample of Tasks with stuck sessions.
+
+    ``returned_task_count`` may be smaller than
+    ``total_distinct_stuck_tasks`` because of ``limit``.
+    """
+
+    from_date: date
+    to_date: date
+    timezone: str
+    total_stuck_sessions: int
+    total_distinct_stuck_tasks: int
+    returned_task_count: int
+    limit: int
+    tasks: tuple[StuckTaskObservation, ...]

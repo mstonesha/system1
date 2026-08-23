@@ -16,6 +16,7 @@ from app.analytics.dayparts import (
     DAYPARTS,
     classify_daypart,
 )
+from app.analytics.drilldown import stuck_task_drilldown
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
     session_outcomes_by_interruption,
@@ -43,6 +44,8 @@ from app.analytics.types import (
     MorningAfternoonWindow,
     MorningAfternoonWindowComparison,
     OutcomeAnalysis,
+    StuckTaskDrilldown,
+    StuckTaskObservation,
     TaskAgeAnalysis,
     TaskAgeBucket,
     TaskEffortEstimation,
@@ -68,6 +71,8 @@ __all__ = [
     "MorningAfternoonWindow",
     "MorningAfternoonWindowComparison",
     "OutcomeAnalysis",
+    "StuckTaskDrilldown",
+    "StuckTaskObservation",
     "TaskAgeAnalysis",
     "TaskAgeBucket",
     "TaskEffortEstimation",
@@ -88,6 +93,7 @@ __all__ = [
     "session_outcomes_by_interruption",
     "session_outcomes_by_weekday",
     "session_outcomes_by_weekday_daypart",
+    "stuck_task_drilldown",
     "task_abandonment_by_execution_age",
     "task_effort_estimation",
     "terminal_tasks_with_execution_age",
