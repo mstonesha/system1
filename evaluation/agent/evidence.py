@@ -4,6 +4,7 @@ Calls production analytics only. Does not load ground truth, does
 not name scenarios, and does not narrate the measurements.
 temporal-v1 omits weekly series so the original contract stays
 reproducible. temporal-v2 adds weekly morning/afternoon rows.
+temporal-v3 reuses the temporal-v2 evidence package unchanged.
 """
 
 from __future__ import annotations
@@ -25,8 +26,13 @@ from app.analytics.outcomes import (
 
 
 ALLOWED_CASE_IDS = frozenset({"case_a", "case_f"})
-EVIDENCE_CONTRACTS = frozenset({"temporal-v1", "temporal-v2"})
+EVIDENCE_CONTRACTS = frozenset(
+    {"temporal-v1", "temporal-v2", "temporal-v3"}
+)
 DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
+WEEKLY_EVIDENCE_VERSIONS = frozenset(
+    {"temporal-v2", "temporal-v3"}
+)
 
 
 def build_temporal_evidence(
@@ -129,7 +135,7 @@ def build_temporal_evidence(
             "positive_rate_gap": window.positive_rate_gap,
         },
     }
-    if version == "temporal-v2":
+    if version in WEEKLY_EVIDENCE_VERSIONS:
         weeks = weekly_morning_afternoon_outcomes(
             db,
             from_date=from_date,

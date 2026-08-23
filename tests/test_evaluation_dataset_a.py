@@ -811,3 +811,37 @@ def test_agent_temporal_v2_weekly_evidence_matches_production(
         assert token not in blob
         assert token not in prompt.combined_text()
 
+
+def test_agent_temporal_v3_evidence_matches_v2(
+    generated_eval,
+    eval_db,
+):
+    from evaluation.agent.evidence import (
+        build_temporal_evidence,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+
+    result = generated_eval["result"]
+    v2 = build_temporal_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_a",
+        version="temporal-v2",
+    )
+    v3 = build_temporal_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_a",
+        version="temporal-v3",
+    )
+    prompt = render_prompt(v3, version="temporal-v3")
+    assert serialize_evidence(v2) == serialize_evidence(v3)
+    assert "weekly_morning_afternoon" in v3
+    assert prompt.version == "temporal-v3"
+    assert serialize_evidence(v3) in prompt.user
+    assert "temporal-v3" in prompt.system
+    assert "converging" in prompt.system.lower()
+

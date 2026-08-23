@@ -6,6 +6,8 @@ Usage:
     python -m evaluation.agent.runner --scenario noise_control --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns --prompt-version temporal-v2 --dry-run
     python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v2 --dry-run
+    python -m evaluation.agent.runner --scenario temporal_patterns --prompt-version temporal-v3 --dry-run
+    python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v3 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
 
@@ -84,7 +86,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Evidence and prompt contract. Default "
             f"{DEFAULT_PROMPT_VERSION} preserves the original "
             "baseline. temporal-v2 adds weekly "
-            "morning/afternoon series and stronger pattern "
+            "morning/afternoon series. temporal-v3 keeps "
+            "that evidence and revises the pattern-reasoning "
             "instructions."
         ),
     )

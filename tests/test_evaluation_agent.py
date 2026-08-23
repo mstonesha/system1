@@ -30,8 +30,10 @@ from evaluation.agent.prompt import (
     PROMPT_VERSION,
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
+    PROMPT_VERSION_V3,
     SYSTEM_INSTRUCTIONS_V1,
     SYSTEM_INSTRUCTIONS_V2,
+    SYSTEM_INSTRUCTIONS_V3,
     ModelPrompt,
     render_prompt,
 )
@@ -366,6 +368,22 @@ def test_evidence_builder_calls_production_analytics(
         "weeks",
     ]
     assert "weekly_morning_afternoon" in v2
+    calls.clear()
+    v3 = build_temporal_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_f",
+        version="temporal-v3",
+    )
+    assert calls == [
+        "weekday",
+        "daypart",
+        "cells",
+        "window",
+        "weeks",
+    ]
+    assert serialize_evidence(v2) == serialize_evidence(v3)
 
 
 def test_temporal_v1_prompt_is_preserved():
@@ -390,23 +408,55 @@ def test_temporal_v1_prompt_is_preserved():
     assert prompt.system == SYSTEM_INSTRUCTIONS_V1
 
 
-def test_temporal_v2_prompt_strengthens_pattern_stability():
+def test_temporal_v2_prompt_is_preserved():
     prompt = render_prompt(
         {"case_id": "case_f"},
         version="temporal-v2",
     )
     assert prompt.version == PROMPT_VERSION_V2
+    assert prompt.system == SYSTEM_INSTRUCTIONS_V2
     text = prompt.system.lower()
     assert "this analysis uses contract temporal-v2" in text
     assert "cross-sectional consistency" in text
     assert "temporal stability" in text
+    assert "does not establish temporal stability" in text
     assert "effect size" in text
     assert "patterns to be empty" in text
     assert "no robust pattern is supported" in text
     assert "sample size" in text
     assert "best" in text
+    assert "converging evidence" not in text
+    assert "do not automatically invalidate" not in text
+    assert "qualified pattern" not in text
+    assert "temporal-v3" not in prompt.system
     assert "temporal_patterns" not in prompt.system
     assert "noise_control" not in prompt.system
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_temporal_v3_prompt_uses_converging_evidence():
+    prompt = render_prompt(
+        {"case_id": "case_a"},
+        version="temporal-v3",
+    )
+    assert prompt.version == PROMPT_VERSION_V3
+    assert prompt.system == SYSTEM_INSTRUCTIONS_V3
+    text = prompt.system.lower()
+    assert "this analysis uses contract temporal-v3" in text
+    assert "converging" in text
+    assert "do not automatically invalidate" in text
+    assert "qualified pattern" in text
+    assert "materially differs from comparable peers" in text
+    assert "hard temporal-stability rule" in text
+    assert "need not be universal" in text
+    assert "patterns to be empty" in text
+    assert "no robust pattern is supported" in text
+    assert "sample size" in text
+    assert "best" in text
+    assert "do not extrapolate beyond the observed period" in text
+    assert "temporal_patterns" not in prompt.system
+    assert "noise_control" not in prompt.system
+    assert "monday morning" not in text
     _assert_no_model_input_leak(prompt.combined_text())
 
 
@@ -488,6 +538,18 @@ def test_temporal_v2_weekly_evidence_uses_production_rows(
     assert weeks[0]["id"] in prompt.user
     assert "weekly_morning_afternoon" in prompt.user
     _assert_no_model_input_leak(prompt.combined_text())
+    v3 = build_temporal_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_a",
+        version="temporal-v3",
+    )
+    assert serialize_evidence(v2) == serialize_evidence(v3)
+    v3_prompt = render_prompt(v3, version="temporal-v3")
+    assert v3_prompt.version == "temporal-v3"
+    assert serialize_evidence(v3) in v3_prompt.user
+    assert v3_prompt.system != prompt.system
 
 
 
@@ -681,6 +743,23 @@ def test_run_case_dry_run_and_stub_do_not_need_live_api(
     assert "temporal-v2" in v2["prompt"]["system"]
     _assert_no_model_input_leak(v2["prompt"]["system"])
     _assert_no_model_input_leak(v2["prompt"]["user"])
+
+    v3 = run_case(
+        db,
+        case_id="case_a",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=True,
+        model=None,
+        prompt_version="temporal-v3",
+    )
+    assert v3["prompt_version"] == "temporal-v3"
+    assert v3["prompt"]["version"] == "temporal-v3"
+    assert v3["evidence"] == v2["evidence"]
+    assert "temporal-v3" in v3["prompt"]["system"]
+    assert v3["prompt"]["system"] != v2["prompt"]["system"]
+    _assert_no_model_input_leak(v3["prompt"]["system"])
+    _assert_no_model_input_leak(v3["prompt"]["user"])
 
 
 def test_cli_refuses_development_database(monkeypatch):
