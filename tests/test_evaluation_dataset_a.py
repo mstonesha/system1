@@ -9,6 +9,11 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.analytics.outcomes import (
+    session_outcomes_by_daypart,
+    session_outcomes_by_weekday,
+    session_outcomes_by_weekday_daypart,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.catalog import parse_task_category
@@ -536,3 +541,146 @@ def test_active_days_have_realistic_daily_task_counts(eval_db):
     assert normal_days
     assert max(counts.values()) <= 7
     assert min(counts.values()) >= 1
+
+
+def _analytics_period(generated_eval, eval_db):
+    result = generated_eval["result"]
+    return (
+        session_outcomes_by_weekday(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+        session_outcomes_by_daypart(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+        session_outcomes_by_weekday_daypart(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+    )
+
+
+def test_analytics_exposes_dataset_a_weekday_pattern(
+    generated_eval,
+    eval_db,
+):
+    weekdays, _dayparts, _cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    assert weekdays.total_sessions == (
+        generated_eval["result"].work_session_count
+    )
+    assert [group.weekday for group in weekdays.groups] == [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+    ]
+    weakest = min(
+        weekdays.groups,
+        key=lambda group: group.positive_rate,
+    )
+    assert weakest.weekday == "Monday"
+    for group in weekdays.groups:
+        assert (
+            group.positive_count + group.negative_count
+            == group.session_count
+        )
+        assert abs(
+            group.positive_rate + group.negative_rate - 1.0
+        ) < 1e-12
+
+
+def test_analytics_exposes_dataset_a_daypart_pattern(
+    generated_eval,
+    eval_db,
+):
+    _weekdays, dayparts, _cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    by_part = {
+        group.daypart: group for group in dayparts.groups
+    }
+    for name in IMPORTANT_DAY_PARTS:
+        assert name in by_part
+        assert by_part[name].session_count > 0
+
+    morningish_n = (
+        by_part["early_morning"].session_count
+        + by_part["morning"].session_count
+    )
+    morningish_pos = (
+        by_part["early_morning"].positive_count
+        + by_part["morning"].positive_count
+    )
+    afternoonish_n = (
+        by_part["early_afternoon"].session_count
+        + by_part["late_afternoon"].session_count
+    )
+    afternoonish_pos = (
+        by_part["early_afternoon"].positive_count
+        + by_part["late_afternoon"].positive_count
+    )
+    morningish_rate = morningish_pos / morningish_n
+    afternoonish_rate = afternoonish_pos / afternoonish_n
+
+    assert morningish_rate - afternoonish_rate >= 0.08
+    assert (
+        by_part["morning"].positive_rate
+        > by_part["late_afternoon"].positive_rate
+    )
+    assert (
+        by_part["early_morning"].session_count
+        < by_part["morning"].session_count
+    )
+    assert (
+        by_part["evening"].session_count
+        < by_part["morning"].session_count
+    )
+
+
+def test_analytics_reveals_monday_morning_exception(
+    generated_eval,
+    eval_db,
+):
+    _weekdays, dayparts, cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    monday_morning = next(
+        group
+        for group in cells.groups
+        if group.weekday == "Monday"
+        and group.daypart == "morning"
+    )
+    tue_fri_morning = [
+        group
+        for group in cells.groups
+        if group.weekday
+        in {"Tuesday", "Wednesday", "Thursday", "Friday"}
+        and group.daypart == "morning"
+    ]
+    tue_fri_n = sum(
+        group.session_count for group in tue_fri_morning
+    )
+    tue_fri_pos = sum(
+        group.positive_count for group in tue_fri_morning
+    )
+    tue_fri_rate = tue_fri_pos / tue_fri_n
+    late_afternoon = next(
+        group
+        for group in dayparts.groups
+        if group.daypart == "late_afternoon"
+    )
+
+    assert tue_fri_rate - monday_morning.positive_rate >= 0.18
+    assert monday_morning.positive_rate < 0.55
+    assert tue_fri_rate > 0.65
+    assert tue_fri_rate - late_afternoon.positive_rate >= 0.12

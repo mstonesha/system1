@@ -3,6 +3,8 @@
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from app.analytics.dayparts import classify_daypart
+
 UTC = timezone.utc
 
 DAY_PART_SPECS = (
@@ -46,19 +48,13 @@ def working_days(start: date, weeks: int) -> list[date]:
 
 
 def classify_day_part(local_dt: datetime) -> str:
-    local_time = local_dt.timetz().replace(tzinfo=None)
+    """Classify a local datetime using production dayparts.
 
-    if local_time < time(6, 0):
-        return "evening"
-    if local_time < time(9, 0):
-        return "early_morning"
-    if local_time < time(12, 0):
-        return "morning"
-    if local_time < time(15, 0):
-        return "early_afternoon"
-    if local_time < time(18, 0):
-        return "late_afternoon"
-    return "evening"
+    Sessions before 06:00 are ``overnight``. Generation
+    weights still start at early_morning; this wrapper
+    exists so evaluation observation matches production.
+    """
+    return classify_daypart(local_dt)
 
 
 def local_to_utc(local_dt: datetime) -> datetime:

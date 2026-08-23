@@ -7,6 +7,11 @@ import yaml
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 
+from app.analytics.outcomes import (
+    session_outcomes_by_daypart,
+    session_outcomes_by_weekday,
+    session_outcomes_by_weekday_daypart,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.age import AGE_BUCKETS
@@ -350,3 +355,82 @@ def test_realised_noise_includes_useful_false_leads(eval_db, rows):
             leads.append("quiet_poor_week")
 
     assert len(leads) >= 3, leads
+
+
+def _analytics_period(generated_eval, eval_db):
+    result = generated_eval["result"]
+    return (
+        session_outcomes_by_weekday(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+        session_outcomes_by_daypart(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+        session_outcomes_by_weekday_daypart(
+            eval_db,
+            from_date=result.start_date,
+            to_date=result.end_date,
+        ),
+    )
+
+
+def test_analytics_exposes_dataset_f_descriptive_ranking(
+    generated_eval,
+    eval_db,
+):
+    weekdays, _dayparts, _cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    rates = [group.positive_rate for group in weekdays.groups]
+    assert rates
+    assert max(rates) != min(rates)
+    friday = next(
+        group
+        for group in weekdays.groups
+        if group.weekday == "Friday"
+    )
+    assert any(
+        group.positive_rate < friday.positive_rate
+        for group in weekdays.groups
+        if group.weekday != "Friday"
+    )
+    forbidden = {
+        "best_day",
+        "confidence",
+        "significance",
+        "recommendation",
+        "pattern_detected",
+    }
+    assert forbidden.isdisjoint(
+        weekdays.__dataclass_fields__
+    )
+
+
+def test_analytics_keeps_dataset_f_small_n_visible(
+    generated_eval,
+    eval_db,
+):
+    _weekdays, dayparts, cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    by_part = {
+        group.daypart: group for group in dayparts.groups
+    }
+    evening = by_part["evening"]
+    morning = by_part["morning"]
+    assert evening.session_count > 0
+    assert evening.session_count < morning.session_count
+    monday_early = next(
+        group
+        for group in cells.groups
+        if group.weekday == "Monday"
+        and group.daypart == "early_morning"
+    )
+    assert monday_early.session_count > 0
+    assert monday_early.session_count < 30
