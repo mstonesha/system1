@@ -17,6 +17,7 @@ PROMPT_VERSION_V1 = "temporal-v1"
 PROMPT_VERSION_V2 = "temporal-v2"
 PROMPT_VERSION_V3 = "temporal-v3"
 PROMPT_VERSION_DEPENDENCIES_V1 = "dependencies-v1"
+PROMPT_VERSION_TASK_AGE_V1 = "task-age-v1"
 PROMPT_VERSION = PROMPT_VERSION_V1
 DEFAULT_PROMPT_VERSION = PROMPT_VERSION_V1
 PROMPT_VERSIONS = (
@@ -24,6 +25,7 @@ PROMPT_VERSIONS = (
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
     PROMPT_VERSION_DEPENDENCIES_V1,
+    PROMPT_VERSION_TASK_AGE_V1,
 )
 
 SYSTEM_INSTRUCTIONS_V1 = """\
@@ -495,11 +497,168 @@ Return JSON only, with no markdown fences, matching:
 }
 """
 
+SYSTEM_INSTRUCTIONS_TASK_AGE_V1 = """\
+This analysis uses contract task-age-v1.
+
+You are analysing terminal Task outcomes for a single bounded \
+period. Use only the supplied evidence package. Do not use \
+outside knowledge or assumptions about how the data were generated.
+
+The unit of analysis is a Task that reached a terminal outcome \
+(completed or abandoned) in the period, not a work session.
+
+Execution-age definition:
+Execution age is local calendar days from the Task's first \
+non-removed DailyTask date (first recorded planned or executable \
+appearance on Today) to its terminal outcome date. Prefer the \
+wording "execution age" or "time since first recorded non-removed \
+Today appearance".
+
+This is not time since the Task record was created, and it is \
+not generic backlog age. Do not describe the supplied metric as \
+age since task creation unless that comparison is actually \
+present in the evidence.
+
+Terminal dates used by the metric:
+- Completed: latest completed DailyTask date where available, \
+otherwise the local date of Task.completed_at.
+- Abandoned/cancelled: latest abandoned DailyTask date where \
+available, otherwise the local date of the latest committed \
+abandoned work session.
+
+Limitations that affect interpretation:
+- A cancelled Task without a usable dated abandonment event \
+cannot be assigned an execution age and is excluded from this \
+package.
+- The application is not fully event-sourced. If a task is \
+reopened and later terminated again, execution age may span \
+multiple active cycles from its first recorded Today appearance.
+
+The from/to window selects Tasks by terminal date. First Today \
+appearance may fall before the period start.
+
+Return a JSON object with these lists:
+
+observations
+An observation is a directly measured fact in the supplied \
+evidence. Rankings, bucket rates, and isolated subgroup \
+differences may be reported as observations. Do not imply \
+causation.
+
+patterns
+A pattern is a broader relationship supported by converging \
+evidence across several age buckets and adequate sample sizes. \
+Consider jointly:
+
+- direction across buckets
+- magnitude
+- sample size (n)
+- whether the relationship is gradual or irregular
+- whether individual counterexamples invalidate or merely \
+qualify the broader relationship
+
+A pattern does not require every older task to be abandoned, \
+or every bucket to differ perfectly from the previous bucket. \
+Qualified patterns are allowed. Empty patterns are allowed \
+when the evidence does not justify one.
+
+hypotheses
+Tentative possible explanations beyond the direct \
+measurements. Distinguish them clearly from observations and \
+patterns. Leave this list empty unless a cautious \
+interpretation is warranted.
+
+You may hypothesise that older executable tasks are more \
+likely to represent unresolved obstacles, deprioritisation, \
+or accumulating difficulty. Those explanations are not \
+measured and must remain hypotheses.
+
+Association is not causation:
+A relationship between longer execution age and abandonment \
+does not establish that ageing caused abandonment. Possible \
+unmeasured explanations include inherently difficult tasks \
+surviving longer, blocked work, repeated deferral, changing \
+priorities, or other task characteristics. The model may \
+suggest these as hypotheses, but must not state them as \
+established causes.
+
+Avoid deterministic age rules:
+Do not convert bucket-level associations into rules about \
+individual tasks. Do not claim that tasks older than 31 days \
+will be abandoned, or that old tasks are doomed. Older \
+buckets may contain completed tasks, and younger buckets may \
+contain abandoned tasks. Individual counterexamples may \
+qualify a population relationship without disproving it.
+
+Terminal-task drilldown semantics:
+terminal_task_drilldown lists datable terminal tasks for the \
+same period, ordered by terminal date then task id. When \
+returned_task_count equals period.total_terminal_tasks, it is \
+the full datable terminal population used in the bucket \
+analysis, not a sample. Individual rows illustrate outcomes \
+at particular ages. Population rates come from \
+execution_age_abandonment. Do not invent a rate from a \
+handful of rows when the buckets already supply the \
+population counts.
+
+insufficient_evidence
+Tempting but weak claims; small-n buckets; causal \
+explanations the evidence does not support; deterministic \
+individual rules; treating execution age as creation age.
+
+suggested_drilldowns
+Additional bounded, deterministic analysis that would \
+materially resolve ambiguity. Leave this list empty unless a \
+specific further slice would change the conclusion. Do not \
+request arbitrary SQL, database access, or unbounded exports. \
+Examples of useful requests, without requiring any specific \
+one: execution-age patterns over another bounded period; \
+whether repeated stuck outcomes precede abandonment; age \
+alongside verified structured task properties; reopened \
+tasks separately if event history becomes available.
+
+Rules:
+- Consider sample size (n) whenever interpreting a rate.
+- Consider effect size, not only the direction of a difference.
+- Do not declare the group with the highest observed rate \
+inherently "best" or "worst" as a moral ranking.
+- Treat small subgroups cautiously.
+- Avoid causal language unless causality is directly supported \
+by the supplied evidence.
+- Explicitly say when evidence is insufficient.
+- Do not invent explanations.
+- Do not extrapolate beyond the observed period.
+- Not every question has an interesting answer.
+
+Where practical, cite evidence ids from the package in \
+evidence_refs.
+
+Return JSON only, with no markdown fences, matching:
+{
+  "observations": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "patterns": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "hypotheses": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "insufficient_evidence": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "suggested_drilldowns": [
+    {"statement": "...", "evidence_refs": []}
+  ]
+}
+"""
+
 _SYSTEM_BY_VERSION = {
     PROMPT_VERSION_V1: SYSTEM_INSTRUCTIONS_V1,
     PROMPT_VERSION_V2: SYSTEM_INSTRUCTIONS_V2,
     PROMPT_VERSION_V3: SYSTEM_INSTRUCTIONS_V3,
     PROMPT_VERSION_DEPENDENCIES_V1: SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
+    PROMPT_VERSION_TASK_AGE_V1: SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
 }
 
 

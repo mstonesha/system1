@@ -8,7 +8,8 @@ temporal-v1 omits weekly series so the original contract stays
 reproducible. temporal-v2 adds weekly morning/afternoon rows.
 temporal-v3 reuses the temporal-v2 evidence package unchanged.
 dependencies-v1 uses interruption outcomes and the bounded stuck
-task drilldown.
+task drilldown. task-age-v1 uses execution-age abandonment
+buckets and datable terminal-task rows.
 """
 
 from __future__ import annotations
@@ -26,6 +27,11 @@ from app.analytics.drilldown import (
     DEFAULT_LIMIT as STUCK_DRILLDOWN_LIMIT,
     stuck_task_drilldown,
 )
+from app.analytics.task_age import (
+    classify_execution_age_days,
+    task_abandonment_by_execution_age,
+    terminal_tasks_with_execution_age,
+)
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
     session_outcomes_by_interruption,
@@ -36,13 +42,17 @@ from app.analytics.outcomes import (
 
 ALLOWED_TEMPORAL_CASE_IDS = frozenset({"case_a", "case_f"})
 ALLOWED_DEPENDENCY_CASE_IDS = frozenset({"case_b"})
+ALLOWED_TASK_AGE_CASE_IDS = frozenset({"case_c"})
 ALLOWED_CASE_IDS = (
-    ALLOWED_TEMPORAL_CASE_IDS | ALLOWED_DEPENDENCY_CASE_IDS
+    ALLOWED_TEMPORAL_CASE_IDS
+    | ALLOWED_DEPENDENCY_CASE_IDS
+    | ALLOWED_TASK_AGE_CASE_IDS
 )
 EVIDENCE_CONTRACTS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
 )
 DEPENDENCY_CONTRACTS = frozenset({"dependencies-v1"})
+TASK_AGE_CONTRACTS = frozenset({"task-age-v1"})
 DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
 WEEKLY_EVIDENCE_VERSIONS = frozenset(
     {"temporal-v2", "temporal-v3"}
@@ -240,6 +250,81 @@ def build_dependencies_evidence(
     }
 
 
+def build_task_age_evidence(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+    case_id: str,
+    version: str = "task-age-v1",
+) -> dict:
+    """Assemble execution-age abandonment evidence.
+
+    Uses production age calculation only. Does not compute an
+    alternative age from Task record creation and does not
+    include titles.
+    """
+    if case_id not in ALLOWED_TASK_AGE_CASE_IDS:
+        raise ValueError(
+            "case_id must be an opaque evaluation identifier "
+            f"(case_c); got {case_id!r}."
+        )
+    if version not in TASK_AGE_CONTRACTS:
+        raise ValueError(
+            "Unknown evidence contract "
+            f"{version!r}. Expected one of "
+            + ", ".join(sorted(TASK_AGE_CONTRACTS))
+        )
+    analysis = task_abandonment_by_execution_age(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    details = terminal_tasks_with_execution_age(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    return {
+        "case_id": case_id,
+        "period": {
+            "from": analysis.from_date.isoformat(),
+            "to": analysis.to_date.isoformat(),
+            "timezone": analysis.timezone,
+            "total_terminal_tasks": analysis.total_terminal_tasks,
+        },
+        "execution_age_abandonment": [
+            {
+                "id": _execution_age_id(group.age_bucket),
+                "bucket": group.age_bucket,
+                "n": group.terminal_task_count,
+                "completed_count": group.completed_count,
+                "abandoned_count": group.abandoned_count,
+                "abandonment_rate": group.abandonment_rate,
+            }
+            for group in analysis.groups
+        ],
+        "terminal_task_drilldown": {
+            "id": "terminal_task_drilldown",
+            "returned_task_count": len(details),
+            "tasks": [
+                {
+                    "id": _terminal_task_id(row.task_id),
+                    "task_id": row.task_id,
+                    "execution_age_days": row.execution_age_days,
+                    "execution_age_bucket": (
+                        classify_execution_age_days(
+                            row.execution_age_days
+                        )
+                    ),
+                    "terminal_outcome": row.terminal_outcome,
+                }
+                for row in details
+            ],
+        },
+    }
+
+
 def build_evidence(
     db: Session,
     *,
@@ -259,6 +344,14 @@ def build_evidence(
         )
     if version in DEPENDENCY_CONTRACTS:
         return build_dependencies_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id=case_id,
+            version=version,
+        )
+    if version in TASK_AGE_CONTRACTS:
+        return build_task_age_evidence(
             db,
             from_date=from_date,
             to_date=to_date,
@@ -296,6 +389,13 @@ def evidence_ids(package: dict) -> set[str]:
     if "id" in drilldown:
         ids.add(drilldown["id"])
     for row in drilldown.get("tasks") or ():
+        ids.add(row["id"])
+    for row in package.get("execution_age_abandonment", ()):
+        ids.add(row["id"])
+    terminal = package.get("terminal_task_drilldown") or {}
+    if "id" in terminal:
+        ids.add(terminal["id"])
+    for row in terminal.get("tasks") or ():
         ids.add(row["id"])
     return ids
 
@@ -338,6 +438,14 @@ def _interruption_id(interrupted: bool) -> str:
 
 def _stuck_task_id(task_id: int) -> str:
     return f"stuck_task:{int(task_id)}"
+
+
+def _execution_age_id(bucket: str) -> str:
+    return f"execution_age:{bucket}"
+
+
+def _terminal_task_id(task_id: int) -> str:
+    return f"terminal_task:{int(task_id)}"
 
 
 def _weekday_id(weekday: str) -> str:

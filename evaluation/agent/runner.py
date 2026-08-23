@@ -1,4 +1,4 @@
-"""CLI for agent evaluation (Datasets A, B, and F).
+"""CLI for agent evaluation (Datasets A, B, C, and F).
 
 Usage:
 
@@ -9,13 +9,15 @@ Usage:
     python -m evaluation.agent.runner --scenario temporal_patterns --prompt-version temporal-v3 --dry-run
     python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v3 --dry-run
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1 --dry-run
+    python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1
+    python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1
 
 Scenario and prompt-version must be compatible. Temporal scenarios
 use temporal-v1/v2/v3. interruptions_dependencies uses
-dependencies-v1.
+dependencies-v1. task_age_abandonment uses task-age-v1.
 
 Live runs require EVAL_AGENT_API_KEY, EVAL_AGENT_BASE_URL, and
 EVAL_AGENT_MODEL. Dry-run generates the scenario, builds evidence,
@@ -72,8 +74,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Run the evaluation-only analysis harness. "
             "Pair temporal_patterns or noise_control with "
-            "temporal-v1/v2/v3, and interruptions_dependencies "
-            "with dependencies-v1."
+            "temporal-v1/v2/v3, interruptions_dependencies "
+            "with dependencies-v1, and task_age_abandonment "
+            "with task-age-v1."
         )
     )
     parser.add_argument(
@@ -97,7 +100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "morning/afternoon series. temporal-v3 keeps "
             "that evidence and revises the pattern-reasoning "
             "instructions. dependencies-v1 uses interruption "
-            "outcomes and the bounded stuck-task drilldown."
+            "outcomes and the bounded stuck-task drilldown. "
+            "task-age-v1 uses execution-age abandonment "
+            "buckets and datable terminal-task rows."
         ),
     )
     parser.add_argument(
@@ -288,8 +293,16 @@ def _print_review(
         f"{period['from']} to {period['to']} "
         f"({period['timezone']})"
     )
-    print(f"total_sessions: {period['total_sessions']}")
-    if "interruption_outcomes" in evidence:
+    if "total_sessions" in period:
+        print(f"total_sessions: {period['total_sessions']}")
+    if "total_terminal_tasks" in period:
+        print(
+            "total_terminal_tasks: "
+            f"{period['total_terminal_tasks']}"
+        )
+    if "execution_age_abandonment" in evidence:
+        _print_task_age_review(evidence)
+    elif "interruption_outcomes" in evidence:
         _print_dependencies_review(evidence)
     else:
         _print_temporal_review(evidence)
@@ -423,6 +436,30 @@ def _print_dependencies_review(evidence: dict) -> None:
         )
 
 
+def _print_task_age_review(evidence: dict) -> None:
+    print("execution_age_abandonment:")
+    for row in evidence["execution_age_abandonment"]:
+        print(
+            f"  bucket={row['bucket']} "
+            f"n={row['n']} "
+            f"completed={row['completed_count']} "
+            f"abandoned={row['abandoned_count']} "
+            f"abandonment_rate={row['abandonment_rate']}"
+        )
+    drilldown = evidence["terminal_task_drilldown"]
+    total = evidence["period"].get("total_terminal_tasks")
+    print("terminal_task_drilldown:")
+    print(
+        "  returned_task_count="
+        f"{drilldown['returned_task_count']}"
+    )
+    if total is not None:
+        print(
+            "  same_population_as_buckets="
+            f"{drilldown['returned_task_count'] == total}"
+        )
+
+
 def _print_group_table(
     title: str,
     rows: list[dict],
@@ -449,6 +486,12 @@ def _print_statements(title: str, items: list[dict]) -> None:
 
 
 def _load_ground_truth(scenario: str) -> str:
+    """Load evaluator-only hidden ground truth after model output.
+
+    Generator-planted facts in these files may be richer than the
+    evidence contract supplied to the model. Score the agent only
+    against conclusions that contract actually supports.
+    """
     path = GROUND_TRUTH_DIR / f"{scenario}.yaml"
     return path.read_text(encoding="utf-8")
 

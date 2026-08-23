@@ -6,6 +6,10 @@ not the same story: HR tasks are not more interrupted.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
+
+The planted HR stuck-rate and HR/non-HR interruption-neutrality
+structure is generator truth. Whether an agent can recover those
+facts depends on the evidence contract, not on the generator.
 """
 
 from __future__ import annotations

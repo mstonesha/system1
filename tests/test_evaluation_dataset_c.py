@@ -91,11 +91,60 @@ def test_ground_truth_matches_generator_constants():
     assert payload["age_definition"]["start"] == (
         "first_non_removed_daily_task_date"
     )
+    assert payload["agent_evidence_contract"] == "task-age-v1"
+    generator_truth = payload["generator_truth"]
     assert "abandonment_probability_rises_with_execution_age" in (
-        payload["expected_patterns"]
+        generator_truth
     )
     assert "first_today_commitment_is_more_informative_than_task_created_at" in (
-        payload["expected_patterns"]
+        generator_truth
+    )
+    assert "expected_patterns" not in payload
+
+
+def test_agent_evaluable_ground_truth_matches_evidence_contract():
+    payload = yaml.safe_load(GROUND_TRUTH_PATH.read_text())
+    agent_patterns = payload["agent_expected_patterns"]
+    agent_hypotheses = payload["agent_expected_hypotheses"]
+    agent_insufficient = payload["agent_expected_insufficient_evidence"]
+    able_blob = " ".join(payload["agent_should_be_able_to_say"]).lower()
+    must_blob = " ".join(payload["agent_should_not_claim"]).lower()
+    hidden = set(payload["not_agent_evaluable"])
+
+    assert "abandonment_probability_rises_with_execution_age" in (
+        agent_patterns
+    )
+    assert "older_execution_age_buckets_show_materially_higher_abandonment" in (
+        agent_patterns
+    )
+    assert "relationship_is_a_population_association_not_a_deterministic_rule" in (
+        agent_patterns
+    )
+    assert hidden.isdisjoint(agent_patterns)
+    assert hidden.isdisjoint(agent_hypotheses)
+    assert "first_today_commitment_is_more_informative_than_task_created_at" in (
+        hidden
+    )
+    assert "created_at_age_is_a_weaker_abandonment_signal" in hidden
+    assert "abandonment rates generally increase" in able_blob
+    assert "especially substantial in the older buckets" in able_blob
+    assert "not a deterministic rule" in able_blob
+    assert "older tasks can still complete" in able_blob
+    assert "younger tasks can still be abandoned" in able_blob
+    assert "does not establish that execution age causes" in able_blob
+    assert "not task creation age" in able_blob
+    assert "reopened or undatable" in able_blob
+    assert "ageing causes abandonment" in must_blob
+    assert "tasks older than 31 days will be abandoned" in must_blob
+    assert "age since task record creation" in must_blob
+    assert "execution_age_does_not_have_a_demonstrated_causal_effect" in (
+        agent_insufficient
+    )
+    assert "supplied_metric_is_not_age_since_task_record_creation" in (
+        agent_insufficient
+    )
+    assert "longer_execution_age_may_reflect_unresolved_obstacles_deprioritisation_or_difficulty" in (
+        agent_hypotheses
     )
 
 
@@ -232,6 +281,7 @@ def test_each_age_bucket_has_enough_terminal_tasks(terminals):
 
 
 def test_abandonment_rises_with_execution_age(terminals):
+    """Generator validation: planted execution-age abandonment gradient."""
     rates = [
         _rate(terminals, lambda row, n=name: row["execution_bucket"] == n)
         for name, _low, _high in AGE_BUCKETS
@@ -291,6 +341,10 @@ def test_old_tasks_still_complete_and_young_tasks_are_abandoned(
 
 
 def test_execution_age_is_stronger_than_created_at_age(terminals):
+    """Generator truth: created-at age is a weaker/misleading alternative.
+
+    This comparison is not agent-evaluable under task-age-v1.
+    """
     exec_gap = _rate(
         terminals,
         lambda row: row["execution_age_days"] >= 31,
@@ -486,6 +540,10 @@ def test_analytics_execution_age_beats_created_at_on_dataset_c(
     generated_eval,
     eval_db,
 ):
+    """Generator validation: execution age beats created-at age.
+
+    Not an agent-evaluable conclusion under task-age-v1.
+    """
     from zoneinfo import ZoneInfo
 
     result = generated_eval["result"]
@@ -535,3 +593,95 @@ def test_analytics_execution_age_beats_created_at_on_dataset_c(
     assert exec_gap >= 0.28
     assert exec_gap > created_gap + 0.06
     assert classify_execution_age_days(7) == "3-7"
+
+
+def test_agent_task_age_evidence_hides_scenario_and_created_at(
+    generated_eval,
+    eval_db,
+):
+    import json
+
+    from app.analytics.task_age import EXECUTION_AGE_BUCKETS
+    from evaluation.agent.evidence import (
+        build_task_age_evidence,
+        evidence_ids,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+    from evaluation.agent.runner import run_case
+
+    result = generated_eval["result"]
+    production = task_abandonment_by_execution_age(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    details = terminal_tasks_with_execution_age(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    evidence = build_task_age_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_c",
+    )
+    assert evidence["case_id"] == "case_c"
+    assert evidence["period"]["total_terminal_tasks"] == (
+        production.total_terminal_tasks
+    )
+    assert [
+        row["bucket"] for row in evidence["execution_age_abandonment"]
+    ] == [spec.name for spec in EXECUTION_AGE_BUCKETS]
+    for row, group in zip(
+        evidence["execution_age_abandonment"],
+        production.groups,
+    ):
+        assert row["n"] == group.terminal_task_count
+        assert (
+            row["completed_count"] + row["abandoned_count"]
+            == row["n"]
+        )
+        assert row["abandonment_rate"] == group.abandonment_rate
+    drilldown = evidence["terminal_task_drilldown"]
+    assert drilldown["returned_task_count"] == len(details)
+    assert drilldown["returned_task_count"] == (
+        production.total_terminal_tasks
+    )
+    assert "limit" not in drilldown
+    assert all("title" not in row for row in drilldown["tasks"])
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(
+        evidence,
+        version="task-age-v1",
+    ).combined_text()
+    for token in (
+        "task_age_abandonment",
+        "expected_patterns",
+        "generator_truth",
+        "created_at",
+        "first_today_commitment_is_more_informative_than_task_created_at",
+        "ground_truth",
+        "dataset c",
+    ):
+        assert token not in blob.lower()
+        assert token not in prompt.lower()
+    known = evidence_ids(evidence)
+    assert "execution_age:31+" in known
+    assert drilldown["tasks"][0]["id"] in known
+    record = run_case(
+        eval_db,
+        case_id="case_c",
+        from_date=result.start_date,
+        to_date=result.end_date,
+        dry_run=True,
+        model=None,
+        prompt_version="task-age-v1",
+    )
+    assert record["case_id"] == "case_c"
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "created_at" not in persisted.lower()
+    assert "task_age_abandonment" not in persisted.lower()

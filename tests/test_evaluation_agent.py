@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import inspect
 import json
 import urllib.error
@@ -9,11 +10,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.models import WorkSession
+from app.models import DailyTask, WorkSession
 from app.time import UTC
 from evaluation.agent.evidence import (
     build_dependencies_evidence,
     build_evidence,
+    build_task_age_evidence,
     build_temporal_evidence,
     evidence_ids,
     serialize_evidence,
@@ -31,10 +33,12 @@ from evaluation.agent.prompt import (
     DEFAULT_PROMPT_VERSION,
     PROMPT_VERSION,
     PROMPT_VERSION_DEPENDENCIES_V1,
+    PROMPT_VERSION_TASK_AGE_V1,
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
     SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
+    SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
     SYSTEM_INSTRUCTIONS_V1,
     SYSTEM_INSTRUCTIONS_V2,
     SYSTEM_INSTRUCTIONS_V3,
@@ -54,13 +58,18 @@ FORBIDDEN_IN_MODEL_INPUT = (
     "temporal_patterns",
     "noise_control",
     "interruptions_dependencies",
+    "task_age_abandonment",
     "dataset a",
     "dataset b",
+    "dataset c",
     "dataset f",
     "ground_truth",
     "expected_patterns",
     "expected_non_patterns",
     "agent_should",
+    "agent_expected",
+    "generator_truth",
+    "not_agent_evaluable",
     "hr_tasks_have_materially_higher_stuck_rate",
     "monday_morning_is_a_strong_negative_exception",
     "no_robust_behavioural_pattern",
@@ -249,6 +258,118 @@ def _seed_dependency_sessions(db, make_task, make_daily_task):
     return waiting, notes
 
 
+def _add_daily(db, task, target_date, state="planned"):
+    daily = DailyTask(
+        task_id=task.id,
+        date=target_date,
+        planned_sessions=1,
+        state=state,
+        sort_order=0,
+    )
+    db.add(daily)
+    db.commit()
+    db.refresh(daily)
+    return daily
+
+
+def _complete_task_on(db, task, daily, local_started):
+    started_at = local_started.astimezone(UTC)
+    db.add(
+        WorkSession(
+            daily_task_id=daily.id,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=25),
+            planned_duration_seconds=1500,
+            actual_duration_seconds=1500,
+            session_state="completed",
+            outcome="complete",
+        )
+    )
+    daily.state = "completed"
+    task.status = "completed"
+    task.completed_at = (
+        local_started + timedelta(minutes=25)
+    ).astimezone(UTC)
+    db.commit()
+    db.refresh(task)
+    db.refresh(daily)
+
+
+def _abandon_task_on(db, task, daily, local_started):
+    started_at = local_started.astimezone(UTC)
+    db.add(
+        WorkSession(
+            daily_task_id=daily.id,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=25),
+            planned_duration_seconds=1500,
+            actual_duration_seconds=1500,
+            session_state="completed",
+            outcome="abandoned",
+        )
+    )
+    daily.state = "abandoned"
+    task.status = "cancelled"
+    task.completed_at = None
+    db.commit()
+    db.refresh(task)
+    db.refresh(daily)
+
+
+def _seed_task_age_terminals(db, make_task):
+    """Terminal tasks spanning production execution-age buckets."""
+    young_created = make_task(title="Recently planned")
+    young_created.created_at = _local(2025, 1, 1, 9).astimezone(UTC)
+    db.commit()
+    first = _add_daily(db, young_created, date(2026, 1, 14))
+    _complete_task_on(
+        db,
+        young_created,
+        first,
+        _local(2026, 1, 14, 10),
+    )
+
+    age0 = make_task()
+    d0 = _add_daily(db, age0, date(2026, 1, 12))
+    _complete_task_on(db, age0, d0, _local(2026, 1, 12, 10))
+
+    age1 = make_task()
+    _add_daily(db, age1, date(2026, 1, 12))
+    last1 = _add_daily(db, age1, date(2026, 1, 13))
+    _abandon_task_on(db, age1, last1, _local(2026, 1, 13, 10))
+
+    age5 = make_task()
+    _add_daily(db, age5, date(2026, 1, 12))
+    last5 = _add_daily(db, age5, date(2026, 1, 17))
+    _complete_task_on(db, age5, last5, _local(2026, 1, 17, 10))
+
+    age10 = make_task()
+    _add_daily(db, age10, date(2026, 1, 12))
+    last10 = _add_daily(db, age10, date(2026, 1, 22))
+    _abandon_task_on(db, age10, last10, _local(2026, 1, 22, 10))
+
+    age20 = make_task()
+    _add_daily(db, age20, date(2026, 1, 12))
+    last20 = _add_daily(db, age20, date(2026, 2, 1))
+    _complete_task_on(db, age20, last20, _local(2026, 2, 1, 10))
+
+    age40 = make_task()
+    _add_daily(db, age40, date(2025, 12, 1))
+    last40 = _add_daily(db, age40, date(2026, 1, 16))
+    _abandon_task_on(db, age40, last40, _local(2026, 1, 16, 10))
+
+    age35_complete = make_task()
+    _add_daily(db, age35_complete, date(2025, 12, 8))
+    last35 = _add_daily(db, age35_complete, date(2026, 1, 12))
+    _complete_task_on(
+        db,
+        age35_complete,
+        last35,
+        _local(2026, 1, 12, 11),
+    )
+    return young_created
+
+
 def _assert_no_model_input_leak(text: str) -> None:
     lowered = text.lower()
     for token in FORBIDDEN_IN_MODEL_INPUT:
@@ -283,12 +404,15 @@ def test_evidence_module_uses_production_analytics():
     assert "weekly_morning_afternoon_outcomes" in text
     assert "session_outcomes_by_interruption" in text
     assert "stuck_task_drilldown" in text
+    assert "task_abandonment_by_execution_age" in text
+    assert "terminal_tasks_with_execution_age" in text
     assert "evaluation.observe" not in text
     assert "yaml.safe_load" not in text
     assert "ground_truth" not in text
     assert "temporal_patterns" not in text
     assert "noise_control" not in text
     assert "interruptions_dependencies" not in text
+    assert "task_age_abandonment" not in text
     assert "parse_task_category" not in text
     for path in AGENT_DIR.rglob("*.py"):
         agent_text = path.read_text(encoding="utf-8")
@@ -306,6 +430,7 @@ def test_prompt_and_run_case_do_not_load_ground_truth():
     assert "temporal_patterns" not in prompt_text
     assert "noise_control" not in prompt_text
     assert "interruptions_dependencies" not in prompt_text
+    assert "task_age_abandonment" not in prompt_text
     assert "ground_truth" not in run_source
     assert "yaml" not in run_source
 
@@ -560,6 +685,50 @@ def test_temporal_v3_prompt_uses_converging_evidence():
     assert "dependencies-v1" not in prompt.system
     assert "stuck_task_drilldown" not in prompt.system
     _assert_no_model_input_leak(prompt.combined_text())
+
+
+FROZEN_PROMPT_SHA256 = {
+    "temporal-v1": (
+        "dae441068655e1c0388afb78ae3b4096a944fb8f9046c85c3243f0db8b90770c"
+    ),
+    "temporal-v2": (
+        "9be5ced2c7c1dcae87d161478c626fbdbe02f1b3bf690b796ef0cda568d06eb8"
+    ),
+    "temporal-v3": (
+        "926173fbfbc318d67bffc9fa084bdf3df319b99fc9765ab03c73089ff2d99ce8"
+    ),
+    "dependencies-v1": (
+        "b6d6085322266708abfa52231ef55ae3c589763a37138679521620e7991b804d"
+    ),
+    "task-age-v1": (
+        "a30e903d4f9ded5a4c05bd8d3f44b8488071f0bd9e8ee3be85941ef671f82546"
+    ),
+}
+
+
+def test_frozen_prompt_contracts_are_byte_stable():
+    from evaluation.agent.prompt import (
+        SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
+    )
+
+    actual = {
+        "temporal-v1": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_V1.encode("utf-8")
+        ).hexdigest(),
+        "temporal-v2": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_V2.encode("utf-8")
+        ).hexdigest(),
+        "temporal-v3": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_V3.encode("utf-8")
+        ).hexdigest(),
+        "dependencies-v1": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1.encode("utf-8")
+        ).hexdigest(),
+        "task-age-v1": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_TASK_AGE_V1.encode("utf-8")
+        ).hexdigest(),
+    }
+    assert actual == FROZEN_PROMPT_SHA256
 
 
 def test_temporal_v2_weekly_evidence_uses_production_rows(
@@ -900,6 +1069,25 @@ def test_require_compatible_routes_dataset_b_to_case_b():
             "noise_control",
             "dependencies-v1",
         )
+    assert require_compatible(
+        "task_age_abandonment",
+        "task-age-v1",
+    ) == "case_c"
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "task_age_abandonment",
+            "temporal-v3",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "temporal_patterns",
+            "task-age-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "interruptions_dependencies",
+            "task-age-v1",
+        )
 
 
 def test_cli_rejects_incompatible_scenario_and_contract(capsys):
@@ -937,6 +1125,270 @@ def test_cli_rejects_incompatible_scenario_and_contract(capsys):
             "--dry-run",
         ]
     ) == 2
+
+    assert agent_main(
+        [
+            "--scenario",
+            "task_age_abandonment",
+            "--prompt-version",
+            "temporal-v3",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+    assert "task-age-v1" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "task_age_abandonment",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
+
+def test_task_age_v1_can_be_selected():
+    from evaluation.agent.prompt import PROMPT_VERSIONS
+
+    assert PROMPT_VERSION_TASK_AGE_V1 == "task-age-v1"
+    assert PROMPT_VERSION_TASK_AGE_V1 in PROMPT_VERSIONS
+    prompt = render_prompt(
+        {"case_id": "case_c"},
+        version="task-age-v1",
+    )
+    assert prompt.version == "task-age-v1"
+    assert prompt.system == SYSTEM_INSTRUCTIONS_TASK_AGE_V1
+    assert prompt.system is not SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1
+
+
+def test_task_age_prompt_defines_metric_and_limits():
+    prompt = render_prompt(
+        {"case_id": "case_c"},
+        version="task-age-v1",
+    )
+    text = prompt.system.lower()
+    assert "this analysis uses contract task-age-v1" in text
+    assert "first non-removed dailytask date" in text
+    assert "terminal outcome date" in text
+    assert "time since first recorded non-removed" in text
+    assert "not time since the task record was created" in text
+    assert "association is not causation" in text
+    assert "does not establish that ageing caused" in text
+    assert "avoid deterministic age rules" in text
+    assert "tasks older than 31 days will be abandoned" in text
+    assert "old tasks are doomed" in text
+    assert "reopened" in text
+    assert "cannot be assigned an execution age" in text
+    assert "not a sample" in text
+    assert "task_age_abandonment" not in prompt.system
+    assert "created_at" not in prompt.system
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_task_age_evidence_uses_production_and_reconciles(
+    db,
+    make_task,
+    monkeypatch,
+):
+    from app.analytics.task_age import (
+        EXECUTION_AGE_BUCKETS,
+        classify_execution_age_days,
+        task_abandonment_by_execution_age,
+        terminal_tasks_with_execution_age,
+    )
+    from evaluation.agent import evidence as evidence_mod
+
+    young = _seed_task_age_terminals(db, make_task)
+    from_date = date(2026, 1, 12)
+    to_date = date(2026, 2, 20)
+    calls: list[str] = []
+
+    def wrap(name, fn):
+        def inner(*args, **kwargs):
+            calls.append(name)
+            assert "created_at" not in kwargs
+            return fn(*args, **kwargs)
+
+        return inner
+
+    monkeypatch.setattr(
+        evidence_mod,
+        "task_abandonment_by_execution_age",
+        wrap(
+            "abandonment",
+            evidence_mod.task_abandonment_by_execution_age,
+        ),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "terminal_tasks_with_execution_age",
+        wrap(
+            "terminals",
+            evidence_mod.terminal_tasks_with_execution_age,
+        ),
+    )
+    evidence = build_task_age_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_c",
+    )
+    assert calls == ["abandonment", "terminals"]
+    production = task_abandonment_by_execution_age(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    details = terminal_tasks_with_execution_age(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    assert evidence["case_id"] == "case_c"
+    assert set(evidence) == {
+        "case_id",
+        "period",
+        "execution_age_abandonment",
+        "terminal_task_drilldown",
+    }
+    assert evidence["period"]["total_terminal_tasks"] == (
+        production.total_terminal_tasks
+    )
+    assert [
+        row["bucket"] for row in evidence["execution_age_abandonment"]
+    ] == [group.age_bucket for group in production.groups]
+    assert {
+        row["bucket"] for row in evidence["execution_age_abandonment"]
+    }.issubset({spec.name for spec in EXECUTION_AGE_BUCKETS})
+    by_bucket = {
+        group.age_bucket: group for group in production.groups
+    }
+    for row in evidence["execution_age_abandonment"]:
+        group = by_bucket[row["bucket"]]
+        assert row["id"] == f"execution_age:{row['bucket']}"
+        assert row["n"] == group.terminal_task_count
+        assert row["completed_count"] == group.completed_count
+        assert row["abandoned_count"] == group.abandoned_count
+        assert row["abandonment_rate"] == group.abandonment_rate
+        assert (
+            row["completed_count"] + row["abandoned_count"]
+            == row["n"]
+        )
+        assert "young" not in row
+        assert "old" not in row
+        assert "trend" not in row
+        assert "monotonic" not in row
+        assert "risk" not in row
+        assert "correlation" not in row
+        assert "significance" not in row
+    drilldown = evidence["terminal_task_drilldown"]
+    assert drilldown["id"] == "terminal_task_drilldown"
+    assert drilldown["returned_task_count"] == len(details)
+    assert drilldown["returned_task_count"] == (
+        production.total_terminal_tasks
+    )
+    assert "limit" not in drilldown
+    assert [row["task_id"] for row in drilldown["tasks"]] == [
+        row.task_id for row in details
+    ]
+    for row, produced in zip(drilldown["tasks"], details):
+        assert row["id"] == f"terminal_task:{row['task_id']}"
+        assert row["execution_age_days"] == produced.execution_age_days
+        assert row["execution_age_bucket"] == classify_execution_age_days(
+            produced.execution_age_days
+        )
+        assert row["terminal_outcome"] == produced.terminal_outcome
+        assert "title" not in row
+        assert "created_at" not in row
+        assert "first_today_date" not in row
+    young_row = next(
+        row
+        for row in drilldown["tasks"]
+        if row["task_id"] == young.id
+    )
+    assert young_row["execution_age_days"] == 0
+    blob = serialize_evidence(evidence)
+    assert "created_at" not in blob
+    assert "task_age_abandonment" not in blob
+    _assert_no_model_input_leak(blob)
+    source = inspect.getsource(build_task_age_evidence)
+    assert "task_abandonment_by_execution_age" in source
+    assert "terminal_tasks_with_execution_age" in source
+    assert "created_at" not in source
+    dispatched = build_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_c",
+        version="task-age-v1",
+    )
+    assert dispatched == evidence
+    known = evidence_ids(evidence)
+    assert "execution_age:0-2" in known
+    assert "terminal_task_drilldown" in known
+    assert f"terminal_task:{young.id}" in known
+    with pytest.raises(ValueError, match="opaque"):
+        build_task_age_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="task_age_abandonment",
+        )
+    with pytest.raises(ValueError, match="opaque"):
+        build_temporal_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="case_c",
+        )
+
+
+def test_run_case_task_age_dry_run_does_not_call_model(
+    db,
+    make_task,
+    monkeypatch,
+):
+    _seed_task_age_terminals(db, make_task)
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("live model must not be called")
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fail_urlopen,
+    )
+    with pytest.raises(ValueError, match="not compatible"):
+        run_case(
+            db,
+            case_id="case_c",
+            from_date=date(2026, 1, 12),
+            to_date=date(2026, 2, 20),
+            dry_run=True,
+            model=None,
+            prompt_version="temporal-v1",
+        )
+    record = run_case(
+        db,
+        case_id="case_c",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 2, 20),
+        dry_run=True,
+        model=None,
+        prompt_version="task-age-v1",
+    )
+    assert record["parse_status"] == "dry_run"
+    assert record["raw_response"] is None
+    assert record["case_id"] == "case_c"
+    assert record["prompt_version"] == "task-age-v1"
+    assert "ground_truth" not in record
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "created_at" not in persisted
+    _assert_no_model_input_leak(persisted)
 
 
 def test_dependencies_evidence_uses_production_analytics(

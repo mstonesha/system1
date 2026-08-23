@@ -112,11 +112,94 @@ def test_ground_truth_matches_generator_constants():
     expected_end = working_days(START_DATE, WORKING_WEEKS)[-1]
     assert payload["date_range"]["end"] == expected_end.isoformat()
     assert payload["date_range"]["working_weeks"] == WORKING_WEEKS
+    assert payload["agent_evidence_contract"] == "dependencies-v1"
+    generator_truth = payload["generator_truth"]
     assert "interrupted_sessions_have_lower_positive_outcome_rate" in (
-        payload["expected_patterns"]
+        generator_truth
     )
     assert "hr_tasks_have_materially_higher_stuck_rate" in (
-        payload["expected_patterns"]
+        generator_truth
+    )
+    assert "hr_interruption_rate_is_not_materially_higher_than_non_hr" in (
+        generator_truth
+    )
+    assert "expected_patterns" not in payload
+
+
+def test_agent_evaluable_ground_truth_matches_evidence_contract():
+    payload = yaml.safe_load(GROUND_TRUTH_PATH.read_text())
+    agent_patterns = payload["agent_expected_patterns"]
+    agent_hypotheses = payload["agent_expected_hypotheses"]
+    agent_insufficient = payload["agent_expected_insufficient_evidence"]
+    able_to_say = payload["agent_should_be_able_to_say"]
+    must_not = payload["agent_should_not_claim"]
+    hidden_from_agent = set(payload["not_agent_evaluable"])
+    able_blob = " ".join(able_to_say).lower()
+    must_blob = " ".join(must_not).lower()
+
+    assert "interrupted_sessions_have_lower_positive_outcome_rate" in (
+        agent_patterns
+    )
+    assert "repeated_stuck_work_is_concentrated_in_the_bounded_drilldown" in (
+        agent_patterns
+    )
+    assert (
+        "displayed_repeatedly_stuck_tasks_share_approval_waiting_response_language"
+        in agent_patterns
+    )
+    assert hidden_from_agent.isdisjoint(agent_patterns)
+    assert hidden_from_agent.isdisjoint(agent_hypotheses)
+    assert all(
+        item not in able_blob
+        for item in (
+            "hr tasks have a materially higher stuck rate",
+            "hr interruption rates are not materially higher",
+            "not explained by a higher interruption rate",
+        )
+    )
+    assert (
+        "title_language_suggests_some_repeatedly_stuck_work_may_involve_dependencies_or_waiting_on_decisions"
+        in agent_hypotheses
+    )
+    assert "verified task category" in " ".join(must_not).lower()
+    assert "interruptions_do_not_have_a_demonstrated_causal_effect" in (
+        agent_insufficient
+    )
+    assert (
+        "interruption_status_is_not_linked_to_the_repeated_stuck_cluster_in_supplied_evidence"
+        in agent_insufficient
+    )
+    assert "no_hr_wide_stuck_rate_can_be_inferred" in agent_insufficient
+    assert "no_hr_wide_interruption_rate_can_be_inferred" in (
+        agent_insufficient
+    )
+    assert "bounded_top_n_drilldown_is_not_representative_of_all_tasks" in (
+        agent_insufficient
+    )
+    assert "materially poorer observed outcomes" in able_blob
+    assert "approval" in able_blob
+    assert "tentative hypothesis" in able_blob
+    assert "separate observations" in able_blob
+    assert "not establish whether interruptions are concentrated" in (
+        able_blob
+    )
+    assert "not representative of all tasks" in able_blob
+    assert "no valid hr-wide stuck rate" in able_blob
+    assert "no valid hr-wide interruption rate" in able_blob
+    assert "interruptions cause poor performance" in must_blob
+    assert "specific stuck rate" in must_blob
+    assert "displayed 12 tasks represent all hr" in must_blob
+    assert "explains the stuck-title cluster" in must_blob
+    assert "hr_tasks_have_materially_higher_stuck_rate" in (
+        payload["generator_truth"]
+    )
+    package_text = (
+        Path(__file__).resolve().parents[1]
+        / "evaluation"
+        / "__init__.py"
+    ).read_text(encoding="utf-8")
+    assert "only be evaluated against conclusions supported" in (
+        package_text
     )
 
 
@@ -277,6 +360,7 @@ def test_one_running_session_constraint_exists(eval_db):
 
 
 def test_interrupted_sessions_have_worse_outcomes(eval_db):
+    """Generator validation: planted interruption/outcome association."""
     rows = _session_rows(eval_db)
     interruption_rate = sum(
         row["work"].interrupted for row in rows
@@ -309,6 +393,10 @@ def test_interrupted_sessions_have_worse_outcomes(eval_db):
 
 
 def test_hr_stuck_rate_is_materially_higher(eval_db):
+    """Generator truth: planted HR stuck-rate structure.
+
+    This is not an agent-evaluable conclusion under dependencies-v1.
+    """
     rows = _session_rows(eval_db)
     hr_stuck = _rate(
         rows,
@@ -332,6 +420,10 @@ def test_hr_stuck_rate_is_materially_higher(eval_db):
 
 
 def test_hr_is_not_more_interrupted(eval_db):
+    """Generator truth: planted HR/non-HR interruption neutrality.
+
+    This is not an agent-evaluable conclusion under dependencies-v1.
+    """
     rows = _session_rows(eval_db)
 
     def interruption_rate(predicate) -> float:
@@ -652,6 +744,9 @@ def test_agent_dependencies_evidence_hides_scenario_and_ground_truth(
         "interruptions_dependencies",
         "expected_patterns",
         "expected_non_patterns",
+        "generator_truth",
+        "agent_expected",
+        "not_agent_evaluable",
         "hr_tasks_have_materially_higher_stuck_rate",
         "agent_should",
         "ground_truth",
@@ -678,6 +773,8 @@ def test_agent_dependencies_evidence_hides_scenario_and_ground_truth(
     for token in (
         "interruptions_dependencies",
         "expected_patterns",
+        "generator_truth",
+        "agent_expected",
         "hr_tasks_have_materially_higher_stuck_rate",
         "ground_truth",
     ):

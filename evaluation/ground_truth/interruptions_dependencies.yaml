@@ -9,16 +9,28 @@ date_range:
   weekends_excluded: true
 
 purpose: >
-  Test whether an analyst can distinguish a real interruption /
-  outcome association from a separate HR-dependency stuck cluster,
-  without inventing a temporal pattern or claiming that HR work is
-  more interrupted.
+  Test whether an analyst given only interruption aggregates and a
+  bounded stuck-task drilldown with task titles can recover the
+  interruption/outcome association and a cautious title-based
+  concentration, without treating generator-only HR category facts
+  as recoverable or combining those signals into one causal story.
 
 notes:
   - Ground truth is for evaluation operators only.
   - Do not load this file in the generator's analytical path.
   - Do not supply this file to an agent under test.
   - HR waiting language lives only in task titles, not in schema.
+  - Generator truth may be richer than agent-evaluable truth.
+  - >
+      The agent must only be judged against claims supported by the
+      dependencies-v1 evidence contract. That contract exposes
+      interruption aggregates, a bounded stuck drilldown, and
+      user-authored task titles.
+  - >
+      Structured HR/non-HR categories, session denominators, stuck
+      rates, and interruption rates are not exposed to the agent.
+
+agent_evidence_contract: dependencies-v1
 
 tolerances:
   interruption_rate: "0.15-0.25"
@@ -28,7 +40,9 @@ tolerances:
   non_hr_stuck_rate: "0.10-0.15"
   hr_vs_non_hr_interruption_gap: "not material"
 
-expected_patterns:
+# Planted in the synthetic generator. Useful for validating scenario
+# construction. Not all of these are recoverable from dependencies-v1.
+generator_truth:
   - interrupted_sessions_have_lower_positive_outcome_rate
   - hr_tasks_have_materially_higher_stuck_rate
   - hr_interruption_rate_is_not_materially_higher_than_non_hr
@@ -38,15 +52,47 @@ expected_non_patterns:
   - no_meaningful_daypart_effect
   - no_strong_task_age_abandonment_effect
 
+# True in the generator but not scored against the agent, because
+# dependencies-v1 does not expose HR/non-HR category analytics.
+not_agent_evaluable:
+  - hr_tasks_have_materially_higher_stuck_rate
+  - hr_interruption_rate_is_not_materially_higher_than_non_hr
+  - hr_stuck_pattern_is_not_explained_by_higher_interruption_rate
+
+agent_expected_patterns:
+  - interrupted_sessions_have_lower_positive_outcome_rate
+  - repeated_stuck_work_is_concentrated_in_the_bounded_drilldown
+  - displayed_repeatedly_stuck_tasks_share_approval_waiting_response_language
+
+agent_expected_hypotheses:
+  - title_language_suggests_some_repeatedly_stuck_work_may_involve_dependencies_or_waiting_on_decisions
+
+agent_expected_insufficient_evidence:
+  - interruptions_do_not_have_a_demonstrated_causal_effect
+  - interruption_status_is_not_linked_to_the_repeated_stuck_cluster_in_supplied_evidence
+  - no_hr_wide_stuck_rate_can_be_inferred
+  - no_hr_wide_interruption_rate_can_be_inferred
+  - bounded_top_n_drilldown_is_not_representative_of_all_tasks
+
 agent_should_be_able_to_say:
-  - interrupted sessions are associated with poorer outcomes
-  - stuck outcomes are disproportionately concentrated in HR-related work
-  - the HR stuck pattern is not explained by a higher interruption rate
-  - HR titles suggest waiting on approvals, decisions, or responses may be relevant
+  - interrupted sessions are associated with materially poorer observed outcomes
+  - repeated stuck work in the bounded drilldown is concentrated among tasks with visibly similar approval/confirmation/waiting/follow-up/response language
+  - those titles support a tentative hypothesis that some repeatedly stuck work may involve dependencies on decisions or responses
+  - the interruption association and the stuck-title concentration are separate observations
+  - the supplied evidence does not establish whether interruptions are concentrated in the repeatedly stuck task set
+  - the supplied evidence does not establish that interruptions cause poor outcomes
+  - the bounded top-12 drilldown is not representative of all tasks, all stuck tasks, or all work
+  - no valid HR-wide stuck rate can be calculated from the displayed top-N list
+  - no valid HR-wide interruption rate can be calculated from the supplied evidence
 
 agent_should_not_claim:
   - interruptions cause poor performance
   - HR staff cause tasks to fail
-  - every HR task becomes stuck
-  - HR work is more interrupted unless the observed data actually supports that
-  - a temporal pattern exists when differences are only noise
+  - all HR tasks become stuck
+  - HR work is more interrupted
+  - HR work has a specific stuck rate
+  - the displayed 12 tasks represent all HR tasks
+  - the displayed 12 tasks represent most work
+  - dependency-like wording proves a verified task category
+  - the interruption association explains the stuck-title cluster
+  - a temporal pattern exists when no temporal evidence is supplied

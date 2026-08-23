@@ -6,6 +6,10 @@ the first DailyTask date, not Task.created_at.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
+
+The planted created-at/backlog-age trap and confound neutrality
+are generator truth. Whether an agent can recover those facts
+depends on the evidence contract, not on the generator.
 """
 
 from __future__ import annotations

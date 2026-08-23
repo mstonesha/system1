@@ -11,15 +11,18 @@ SCENARIO_CASE_IDS = {
     "temporal_patterns": "case_a",
     "noise_control": "case_f",
     "interruptions_dependencies": "case_b",
+    "task_age_abandonment": "case_c",
 }
 TEMPORAL_VERSIONS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
 )
 DEPENDENCY_VERSIONS = frozenset({"dependencies-v1"})
+TASK_AGE_VERSIONS = frozenset({"task-age-v1"})
 CASE_CONTRACTS = {
     "case_a": TEMPORAL_VERSIONS,
     "case_f": TEMPORAL_VERSIONS,
     "case_b": DEPENDENCY_VERSIONS,
+    "case_c": TASK_AGE_VERSIONS,
 }
 
 

@@ -9,9 +9,11 @@ date_range:
   weekends_excluded: true
 
 purpose: >
-  Test whether an analyst can detect that abandonment becomes more
-  likely as a task stays unresolved after first commitment to Today,
-  and that Task.created_at (backlog-inclusive) is the wrong age.
+  Test whether an analyst given only execution-age abandonment
+  buckets and a terminal-task drilldown can recover a population
+  association between longer execution age and abandonment, without
+  treating age as a deterministic rule, a causal mechanism, or age
+  since Task record creation.
 
 age_definition:
   start: first_non_removed_daily_task_date
@@ -53,8 +55,19 @@ notes:
   - Backlog delays before first DailyTask are independent of fate.
   - Bucket fates are shuffled quotas near the intended rates, not a
     deterministic age threshold.
+  - Generator truth may be richer than agent-evaluable truth.
+  - >
+      The agent must only be judged against claims supported by the
+      task-age-v1 evidence contract. That contract exposes
+      execution-age abandonment buckets and datable terminal-task
+      rows. It does not expose Task.created_at or an alternative
+      backlog-age comparison.
 
-expected_patterns:
+agent_evidence_contract: task-age-v1
+
+# Planted in the synthetic generator. Useful for validating scenario
+# construction. Not all of these are recoverable from task-age-v1.
+generator_truth:
   - abandonment_probability_rises_with_execution_age
   - tasks_over_14_days_show_materially_higher_abandonment_than_tasks_under_8_days
   - tasks_31_plus_days_have_the_highest_abandonment_rate
@@ -67,15 +80,48 @@ expected_non_patterns:
   - no_material_category_abandonment_effect
   - no_material_planned_session_effect
 
+# True in the generator but not scored against the agent, because
+# task-age-v1 does not expose created-at age, backlog delay, or
+# confound slices.
+not_agent_evaluable:
+  - first_today_commitment_is_more_informative_than_task_created_at
+  - created_at_age_is_a_weaker_abandonment_signal
+  - hidden_backlog_delay_is_independent_of_fate
+  - category_does_not_explain_the_age_pattern
+  - interruptions_do_not_explain_the_age_pattern
+
+agent_expected_patterns:
+  - abandonment_probability_rises_with_execution_age
+  - older_execution_age_buckets_show_materially_higher_abandonment
+  - relationship_is_a_population_association_not_a_deterministic_rule
+
+agent_expected_hypotheses:
+  - longer_execution_age_may_reflect_unresolved_obstacles_deprioritisation_or_difficulty
+
+agent_expected_insufficient_evidence:
+  - execution_age_does_not_have_a_demonstrated_causal_effect
+  - older_tasks_are_not_guaranteed_to_be_abandoned
+  - younger_tasks_are_not_guaranteed_to_complete
+  - supplied_metric_is_not_age_since_task_record_creation
+  - reopen_and_undatable_limitations_constrain_interpretation
+
 agent_should_be_able_to_say:
-  - older unresolved tasks are increasingly likely to be abandoned
-  - the relationship becomes materially stronger after roughly two weeks
-  - task age should be measured from first commitment to Today rather than backlog creation
-  - some old tasks still complete successfully
+  - abandonment rates generally increase as execution age increases
+  - the increase is especially substantial in the older buckets
+  - this is a population-level association, not a deterministic rule
+  - older tasks can still complete
+  - younger tasks can still be abandoned
+  - the evidence does not establish that execution age causes abandonment
+  - the metric is execution age from first recorded non-removed Today appearance, not Task creation age
+  - production limitations may affect reopened or undatable tasks
 
 agent_should_not_claim:
-  - age causes abandonment
-  - every task older than two weeks will be abandoned
+  - ageing causes abandonment
+  - tasks older than 31 days will be abandoned
+  - old tasks are doomed
+  - every older task is abandoned
   - a specific age threshold guarantees failure
+  - the supplied metric is age since Task record creation
   - backlog age is equivalent to execution age
   - category or interruptions explain the age pattern
+  - individual counterexamples disprove a broader population association
