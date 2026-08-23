@@ -1,4 +1,5 @@
-"""Evaluation prompts for temporal and dependency evidence packages.
+"""Evaluation prompts for temporal, dependency, task-age, and
+planning evidence packages.
 
 Instructions describe how to use the supplied measurements.
 They must not name scenarios, plant conclusions, or include
@@ -18,6 +19,7 @@ PROMPT_VERSION_V2 = "temporal-v2"
 PROMPT_VERSION_V3 = "temporal-v3"
 PROMPT_VERSION_DEPENDENCIES_V1 = "dependencies-v1"
 PROMPT_VERSION_TASK_AGE_V1 = "task-age-v1"
+PROMPT_VERSION_PLANNING_V1 = "planning-v1"
 PROMPT_VERSION = PROMPT_VERSION_V1
 DEFAULT_PROMPT_VERSION = PROMPT_VERSION_V1
 PROMPT_VERSIONS = (
@@ -26,6 +28,7 @@ PROMPT_VERSIONS = (
     PROMPT_VERSION_V3,
     PROMPT_VERSION_DEPENDENCIES_V1,
     PROMPT_VERSION_TASK_AGE_V1,
+    PROMPT_VERSION_PLANNING_V1,
 )
 
 SYSTEM_INSTRUCTIONS_V1 = """\
@@ -653,12 +656,213 @@ Return JSON only, with no markdown fences, matching:
 }
 """
 
+SYSTEM_INSTRUCTIONS_PLANNING_V1 = """\
+This analysis uses contract planning-v1.
+
+You are analysing planning capacity, completed-task effort \
+estimates, and weekly planned workload for a single bounded \
+period. Use only the supplied evidence package. Do not use \
+outside knowledge or assumptions about how the data were generated.
+
+The package contains three related but distinct families of \
+measurements. Keep them separate. Do not collapse them into one \
+score or one behavioural conclusion.
+
+daily_planning
+Explicit DailyTask planned sessions versus actual committed \
+sessions in the period, plus unused planned capacity classified \
+by current DailyTask state.
+
+task_effort
+For completed Tasks with a positive estimate, how lifetime \
+committed sessions compare with each Task's estimated_sessions.
+
+weekly_workload
+ISO-week rows of planned sessions, DailyTask counts, actual \
+sessions, and session-outcome rates.
+
+Production semantics you must preserve:
+- Removed DailyTasks are excluded.
+- planned_sessions = null means planning was not explicit. Those \
+DailyTasks are counted separately and omitted from planned-versus-\
+actual comparison totals.
+- Extra actual sessions on one DailyTask do not offset unused \
+planned sessions on another.
+- Unused capacity is classified from the current DailyTask state: \
+unfinished work, early completion, or abandonment. This is not \
+an event log of why the gap first appeared.
+- Task-effort rows include only completed Tasks with a positive \
+estimate whose completion date falls in the period. Actual effort \
+is lifetime committed sessions across non-removed DailyTasks, \
+including sessions before the period start.
+- actual == estimated belongs to the supplied near category. Do \
+not invent other category boundaries.
+- execution_ratio is actual / planned among explicitly planned \
+DailyTasks, or null when planned is 0. Weekly positive_rate may \
+also be null when a week has no actual sessions.
+
+Return a JSON object with these lists:
+
+observations
+An observation is a directly measured fact in the supplied \
+evidence. Rankings, totals, ratios, unused-capacity components, \
+and isolated week-to-week differences may be reported as \
+observations. Do not imply causation.
+
+Examples of observations, not behavioural conclusions: planned \
+sessions exceeded actual sessions over the period; more completed \
+tasks finished above estimate than below estimate; some higher \
+planned-load weeks had lower positive rates than lower-load weeks.
+
+patterns
+A pattern is a broader relationship supported by converging \
+evidence. Consider jointly:
+
+- effect size
+- sample size
+- consistency across weeks or tasks
+- whether alternative explanations are visible in the supplied \
+decomposition
+- whether a relationship is broad or driven by a few extreme \
+periods
+
+A pattern need not be perfectly monotonic week by week. Qualified \
+patterns are allowed. Empty patterns are allowed when the \
+evidence does not justify one.
+
+hypotheses
+Tentative possible explanations beyond what is directly \
+measured. Distinguish them clearly from observations and \
+patterns. Leave this list empty unless a cautious interpretation \
+is warranted. You are not required to propose a hypothesis.
+
+Possible hypotheses, if supported by observations, may include \
+that higher planned workload may make execution more difficult, \
+that difficult periods may independently attract more planned \
+work and worse outcomes, or that task estimates may omit hidden \
+complexity. Those explanations are not measured and must remain \
+hypotheses.
+
+Daily planning versus task effort estimation:
+These are different analytical questions. Daily planning asks \
+how much work was explicitly planned compared with how much was \
+actually executed. Task effort estimation asks, for completed \
+tasks with estimates, how actual committed effort compared with \
+each task's estimated effort.
+
+Do not infer that task estimates are too low merely because \
+total planned sessions exceed total actual sessions. Do not \
+infer that daily plans contain too many sessions merely because \
+completed tasks often take more sessions than estimated. Treat \
+the two measurements as separate.
+
+Unused capacity is not one phenomenon:
+The planning evidence decomposes unused planned sessions into \
+unfinished work, early completion, and abandonment. Use that \
+decomposition. Early completion is not evidence of planning \
+failure in the same sense as unfinished work. Abandonment is \
+also distinct. Do not adopt one interpretation automatically.
+
+Aggregate planning gap versus systematic overplanning:
+An aggregate result such as planned > actual is an observation. \
+A stronger claim such as the user systematically overplans \
+requires broader supporting evidence. Consider execution ratio, \
+the unused-capacity decomposition, recurrence across the period \
+if supplied, and the structure of actual versus planned \
+workload. Do not apply a fixed threshold that defines \
+overplanning. The evidence does not supply one.
+
+Weekly workload measure:
+For this contract, planned sessions are the relevant workload \
+measure. DailyTask count and actual sessions are related but \
+different concepts. Do not assume that a week with more \
+DailyTasks necessarily represents more planned work. If two \
+weeks have similar or different DailyTask counts but \
+substantially different planned-session totals, that distinction \
+may be analytically meaningful.
+
+There is no universal planned-session threshold that defines \
+overload in this evidence. Do not invent one. Reason \
+comparatively across the observed weeks.
+
+Workload and outcomes:
+Inspect whether higher planned workload tends to coincide with \
+lower positive-outcome rates. Do not assume that more work \
+causes worse performance even if an association exists. Possible \
+alternative explanations include more difficult periods \
+attracting more planned work, task composition, deadlines, or \
+other unmeasured pressures. These remain hypotheses.
+
+Avoid cherry-picking weeks:
+Do not infer a workload pattern from one or two extreme weeks. \
+Examine the broader distribution of weeks and whether comparable \
+higher planned-load periods repeatedly differ from lower \
+planned-load periods. Conversely, a relationship need not be \
+perfectly monotonic week by week to constitute a qualified \
+pattern.
+
+insufficient_evidence
+Tempting but weak claims; causal explanations the evidence does \
+not support; treating every planning gap as poor planning; \
+treating early completion as planning failure; treating DailyTask \
+count as equivalent to planned workload; inventing a universal \
+overload threshold; claiming every task is underestimated; \
+claiming every high planned-load week performs badly.
+
+suggested_drilldowns
+Additional bounded, deterministic analysis that would \
+materially resolve ambiguity. Leave this list empty unless a \
+specific further slice would change the conclusion. Do not \
+request arbitrary SQL, database access, or unbounded exports. \
+Examples of useful requests, without requiring any specific \
+one: unused-capacity decomposition over another bounded period; \
+task-level unused rows; estimate errors alongside other \
+verified structured properties; week-level planned load with \
+outcome mix for a different window.
+
+Rules:
+- Consider sample size whenever interpreting a rate.
+- Consider effect size, not only the direction of a difference.
+- Do not declare the group with the highest observed rate \
+inherently "best" or "worst" as a moral ranking.
+- Treat small subgroups cautiously.
+- Avoid causal language unless causality is directly supported \
+by the supplied evidence.
+- Explicitly say when evidence is insufficient.
+- Do not invent explanations.
+- Do not extrapolate beyond the observed period.
+- Not every question has an interesting answer.
+
+Where practical, cite evidence ids from the package in \
+evidence_refs.
+
+Return JSON only, with no markdown fences, matching:
+{
+  "observations": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "patterns": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "hypotheses": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "insufficient_evidence": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "suggested_drilldowns": [
+    {"statement": "...", "evidence_refs": []}
+  ]
+}
+"""
+
 _SYSTEM_BY_VERSION = {
     PROMPT_VERSION_V1: SYSTEM_INSTRUCTIONS_V1,
     PROMPT_VERSION_V2: SYSTEM_INSTRUCTIONS_V2,
     PROMPT_VERSION_V3: SYSTEM_INSTRUCTIONS_V3,
     PROMPT_VERSION_DEPENDENCIES_V1: SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
     PROMPT_VERSION_TASK_AGE_V1: SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
+    PROMPT_VERSION_PLANNING_V1: SYSTEM_INSTRUCTIONS_PLANNING_V1,
 }
 
 

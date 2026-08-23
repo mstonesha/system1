@@ -9,10 +9,12 @@ date_range:
   weekends_excluded: true
 
 purpose: >
-  Test whether an analyst can distinguish capacity over-planning from
-  effort underestimation, treat early completion as distinct from
-  unused deferred capacity, and detect that unusually heavy planned
-  weeks have poorer session outcomes.
+  Test whether an analyst given daily planning capacity, completed-task
+  effort estimates, and weekly planned-session rows can keep those
+  measurements distinct, interpret unused capacity by cause, and
+  inspect a comparative planned-load versus outcome association
+  without treating generator week labels or a universal overload
+  threshold as recovered facts.
 
 heavy_weeks:
   - 5
@@ -69,12 +71,27 @@ notes:
   - Weekly planned totals were scaled to support session volume;
     the planted contrast is heavy vs normal, not the original sketch
     of 25-32 vs 42-50.
+  - Generator truth may be richer than agent-evaluable truth.
+  - >
+      The agent must only be judged against claims supported by the
+      planning-v1 evidence contract. That contract exposes daily
+      planning totals, completed-task effort estimates, and weekly
+      planned-session rows. It does not expose heavy/normal week
+      labels or a universal planned-session threshold.
 
-expected_patterns:
+agent_evidence_contract: planning-v1
+
+# Planted in the synthetic generator. Useful for validating scenario
+# construction. Not all of these are recoverable as labelled facts
+# from planning-v1.
+generator_truth:
   - planned_daily_sessions_exceed_actual_sessions_overall
   - some_unused_planned_capacity_is_explained_by_early_completion
+  - unused_capacity_is_mostly_unfinished_work
   - task_effort_is_mildly_underestimated_on_average
   - heavy_planned_workload_weeks_have_lower_positive_outcome_rate
+  - workload_variation_uses_both_many_small_and_few_large_structures
+  - no_deliberate_temporal_interruption_or_age_confound
 
 expected_non_patterns:
   - no_meaningful_weekday_effect
@@ -84,16 +101,56 @@ expected_non_patterns:
   - no_strong_task_age_abandonment_effect
   - no_long_term_improvement_or_decline
 
+# True in the generator but not scored against the agent, because
+# planning-v1 does not expose week-regime labels or confound slices.
+not_agent_evaluable:
+  - hidden_heavy_week_generator_labels
+  - synthetic_workload_classes
+  - generator_side_week_selection_logic
+  - hidden_confound_neutrality_mechanisms
+  - category_effects
+  - temporal_design_details
+
+agent_expected_patterns:
+  - planned_sessions_exceed_actual_committed_sessions
+  - unused_capacity_is_mostly_unfinished_work_not_abandonment
+  - completed_tasks_tend_to_take_more_sessions_than_estimated_on_average
+  - higher_planned_load_weeks_tend_to_have_lower_positive_outcome_rates
+
+agent_expected_hypotheses:
+  - high_planned_workload_may_make_execution_harder
+  - difficult_weeks_may_attract_more_planned_work_and_worse_outcomes
+  - task_estimates_may_omit_hidden_complexity
+
+agent_expected_insufficient_evidence:
+  - workload_does_not_have_a_demonstrated_causal_effect
+  - not_every_high_load_week_performs_badly
+  - no_universal_planned_session_overload_threshold
+  - not_every_task_is_underestimated
+  - planning_gap_does_not_automatically_mean_poor_planning
+  - early_completion_is_not_planning_failure
+  - dailytask_count_is_not_equivalent_to_planned_workload
+
 agent_should_be_able_to_say:
-  - planned workload is generally higher than executed workload
-  - part of the planned-versus-actual gap is benign because some tasks finish early
-  - tasks tend to require somewhat more sessions than initially estimated
-  - unusually heavy planned weeks are associated with worse session outcomes
-  - capacity over-planning and effort underestimation are distinct issues
+  - explicitly planned sessions exceed realised committed sessions over the period
+  - execution ratio is materially below 1
+  - most unused planned capacity comes from unfinished work rather than abandonment
+  - some unused capacity is attributable to early completion
+  - that decomposition matters when interpreting the planning gap
+  - completed tasks, on average, require somewhat more sessions than estimated
+  - the task-level estimate distribution is mixed rather than universal
+  - weeks with higher planned-session loads tend to have lower positive-outcome rates
+  - the workload relationship is associative, not causal
+  - planned sessions are more informative for workload here than DailyTask count alone
 
 agent_should_not_claim:
   - every unused planned session represents failure
   - completing a task early is evidence of bad planning
   - high workload causes poor outcomes
+  - every high-load week performs badly
+  - a universal planned-session threshold defines overload
+  - every task is underestimated
+  - the aggregate planning gap proves systematic overplanning
+  - DailyTask count alone is equivalent to planned workload
   - estimated_sessions and planned_sessions measure the same thing
-  - a temporal/category/interruption pattern exists when it is only noise
+  - a temporal, category, or interruption pattern exists when it is only noise

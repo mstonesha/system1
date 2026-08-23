@@ -1,4 +1,4 @@
-"""CLI for agent evaluation (Datasets A, B, C, and F).
+"""CLI for agent evaluation (Datasets A, B, C, D, and F).
 
 Usage:
 
@@ -10,14 +10,17 @@ Usage:
     python -m evaluation.agent.runner --scenario noise_control --prompt-version temporal-v3 --dry-run
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1 --dry-run
     python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1 --dry-run
+    python -m evaluation.agent.runner --scenario planning_workload --prompt-version planning-v1 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1
     python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1
+    python -m evaluation.agent.runner --scenario planning_workload --prompt-version planning-v1
 
 Scenario and prompt-version must be compatible. Temporal scenarios
 use temporal-v1/v2/v3. interruptions_dependencies uses
 dependencies-v1. task_age_abandonment uses task-age-v1.
+planning_workload uses planning-v1.
 
 Live runs require EVAL_AGENT_API_KEY, EVAL_AGENT_BASE_URL, and
 EVAL_AGENT_MODEL. Dry-run generates the scenario, builds evidence,
@@ -75,8 +78,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Run the evaluation-only analysis harness. "
             "Pair temporal_patterns or noise_control with "
             "temporal-v1/v2/v3, interruptions_dependencies "
-            "with dependencies-v1, and task_age_abandonment "
-            "with task-age-v1."
+            "with dependencies-v1, task_age_abandonment "
+            "with task-age-v1, and planning_workload "
+            "with planning-v1."
         )
     )
     parser.add_argument(
@@ -102,7 +106,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             "instructions. dependencies-v1 uses interruption "
             "outcomes and the bounded stuck-task drilldown. "
             "task-age-v1 uses execution-age abandonment "
-            "buckets and datable terminal-task rows."
+            "buckets and datable terminal-task rows. "
+            "planning-v1 uses daily planning capacity, "
+            "completed-task effort estimates, and weekly "
+            "planned-session rows."
         ),
     )
     parser.add_argument(
@@ -300,7 +307,9 @@ def _print_review(
             "total_terminal_tasks: "
             f"{period['total_terminal_tasks']}"
         )
-    if "execution_age_abandonment" in evidence:
+    if "daily_planning" in evidence:
+        _print_planning_review(evidence)
+    elif "execution_age_abandonment" in evidence:
         _print_task_age_review(evidence)
     elif "interruption_outcomes" in evidence:
         _print_dependencies_review(evidence)
@@ -352,6 +361,52 @@ def _print_review(
             "(not sent to the model) ---"
         )
         print(ground_truth_text.rstrip())
+
+
+def _print_planning_review(evidence: dict) -> None:
+    planning = evidence["daily_planning"]
+    print("daily_planning:")
+    print(
+        "  planned="
+        f"{planning['total_planned_sessions']} "
+        f"actual={planning['total_actual_sessions']} "
+        f"execution_ratio={planning['execution_ratio']}"
+    )
+    print(
+        "  unused="
+        f"{planning['total_unused_planned_sessions']} "
+        f"unfinished={planning['unused_while_unfinished']} "
+        f"early_completion="
+        f"{planning['unused_due_to_early_completion']} "
+        f"abandonment={planning['unused_on_abandonment']}"
+    )
+    effort = evidence["task_effort"]
+    print("task_effort:")
+    print(
+        "  completed_tasks_with_estimate="
+        f"{effort['completed_tasks_with_estimate']} "
+        f"mean_estimated={effort['mean_estimated_sessions']} "
+        f"mean_actual={effort['mean_actual_sessions']}"
+    )
+    print(
+        "  mean_ratio="
+        f"{effort['mean_actual_to_estimated_ratio']} "
+        f"median_ratio="
+        f"{effort['median_actual_to_estimated_ratio']} "
+        f"below={effort['below_estimate_count']} "
+        f"near={effort['near_estimate_count']} "
+        f"above={effort['above_estimate_count']}"
+    )
+    weeks = evidence["weekly_workload"]
+    print(f"weekly_workload: {len(weeks)}")
+    for row in weeks:
+        print(
+            f"  {row['week_start']} "
+            f"planned={row['planned_sessions']} "
+            f"daily_tasks={row['daily_task_count']} "
+            f"actual={row['actual_sessions']} "
+            f"positive_rate={row['positive_rate']}"
+        )
 
 
 def _print_temporal_review(evidence: dict) -> None:

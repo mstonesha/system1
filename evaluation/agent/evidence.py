@@ -9,7 +9,9 @@ reproducible. temporal-v2 adds weekly morning/afternoon rows.
 temporal-v3 reuses the temporal-v2 evidence package unchanged.
 dependencies-v1 uses interruption outcomes and the bounded stuck
 task drilldown. task-age-v1 uses execution-age abandonment
-buckets and datable terminal-task rows.
+buckets and datable terminal-task rows. planning-v1 uses daily
+planning capacity, completed-task effort estimates, and weekly
+planned-session rows.
 """
 
 from __future__ import annotations
@@ -38,21 +40,29 @@ from app.analytics.outcomes import (
     session_outcomes_by_weekday,
     session_outcomes_by_weekday_daypart,
 )
+from app.analytics.planning import (
+    daily_planning_summary,
+    task_effort_estimation,
+    weekly_workload,
+)
 
 
 ALLOWED_TEMPORAL_CASE_IDS = frozenset({"case_a", "case_f"})
 ALLOWED_DEPENDENCY_CASE_IDS = frozenset({"case_b"})
 ALLOWED_TASK_AGE_CASE_IDS = frozenset({"case_c"})
+ALLOWED_PLANNING_CASE_IDS = frozenset({"case_d"})
 ALLOWED_CASE_IDS = (
     ALLOWED_TEMPORAL_CASE_IDS
     | ALLOWED_DEPENDENCY_CASE_IDS
     | ALLOWED_TASK_AGE_CASE_IDS
+    | ALLOWED_PLANNING_CASE_IDS
 )
 EVIDENCE_CONTRACTS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
 )
 DEPENDENCY_CONTRACTS = frozenset({"dependencies-v1"})
 TASK_AGE_CONTRACTS = frozenset({"task-age-v1"})
+PLANNING_CONTRACTS = frozenset({"planning-v1"})
 DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
 WEEKLY_EVIDENCE_VERSIONS = frozenset(
     {"temporal-v2", "temporal-v3"}
@@ -325,6 +335,105 @@ def build_task_age_evidence(
     }
 
 
+def build_planning_evidence(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+    case_id: str,
+    version: str = "planning-v1",
+) -> dict:
+    """Assemble daily planning, task-effort, and weekly workload.
+
+    Passes through production analytics without adding
+    interpretive labels.
+    """
+    if case_id not in ALLOWED_PLANNING_CASE_IDS:
+        raise ValueError(
+            "case_id must be an opaque evaluation identifier "
+            f"(case_d); got {case_id!r}."
+        )
+    if version not in PLANNING_CONTRACTS:
+        raise ValueError(
+            "Unknown evidence contract "
+            f"{version!r}. Expected one of "
+            + ", ".join(sorted(PLANNING_CONTRACTS))
+        )
+    planning = daily_planning_summary(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    effort = task_effort_estimation(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    weeks = weekly_workload(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    return {
+        "case_id": case_id,
+        "period": {
+            "from": planning.from_date.isoformat(),
+            "to": planning.to_date.isoformat(),
+            "timezone": planning.timezone,
+        },
+        "daily_planning": {
+            "id": "daily_planning",
+            "daily_tasks_with_explicit_plan": (
+                planning.daily_tasks_with_explicit_plan
+            ),
+            "daily_tasks_without_explicit_plan": (
+                planning.daily_tasks_without_explicit_plan
+            ),
+            "total_planned_sessions": (
+                planning.total_planned_sessions
+            ),
+            "total_actual_sessions": (
+                planning.total_actual_sessions
+            ),
+            "execution_ratio": planning.execution_ratio,
+            "total_unused_planned_sessions": (
+                planning.total_unused_planned_sessions
+            ),
+            "unused_while_unfinished": (
+                planning.unused_while_unfinished
+            ),
+            "unused_due_to_early_completion": (
+                planning.unused_due_to_early_completion
+            ),
+            "unused_on_abandonment": (
+                planning.unused_on_abandonment
+            ),
+        },
+        "task_effort": {
+            "id": "task_effort",
+            "completed_tasks_with_estimate": (
+                effort.completed_tasks_with_estimate
+            ),
+            "mean_estimated_sessions": (
+                effort.mean_estimated_sessions
+            ),
+            "mean_actual_sessions": effort.mean_actual_sessions,
+            "mean_actual_to_estimated_ratio": (
+                effort.mean_actual_to_estimated_ratio
+            ),
+            "median_actual_to_estimated_ratio": (
+                effort.median_actual_to_estimated_ratio
+            ),
+            "below_estimate_count": effort.below_estimate_count,
+            "near_estimate_count": effort.near_estimate_count,
+            "above_estimate_count": effort.above_estimate_count,
+        },
+        "weekly_workload": [
+            _planning_week_row(group) for group in weeks.groups
+        ],
+    }
+
+
 def build_evidence(
     db: Session,
     *,
@@ -352,6 +461,14 @@ def build_evidence(
         )
     if version in TASK_AGE_CONTRACTS:
         return build_task_age_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id=case_id,
+            version=version,
+        )
+    if version in PLANNING_CONTRACTS:
+        return build_planning_evidence(
             db,
             from_date=from_date,
             to_date=to_date,
@@ -397,12 +514,34 @@ def evidence_ids(package: dict) -> set[str]:
         ids.add(terminal["id"])
     for row in terminal.get("tasks") or ():
         ids.add(row["id"])
+    daily = package.get("daily_planning") or {}
+    if "id" in daily:
+        ids.add(daily["id"])
+    effort = package.get("task_effort") or {}
+    if "id" in effort:
+        ids.add(effort["id"])
+    for row in package.get("weekly_workload", ()):
+        ids.add(row["id"])
     return ids
 
 
 def serialize_evidence(package: dict) -> str:
     """Compact deterministic JSON for the model prompt."""
     return _dumps(package)
+
+
+def _planning_week_row(group) -> dict:
+    week_start = group.week_start_date.isoformat()
+    return {
+        "id": f"week:{week_start}",
+        "week_start": week_start,
+        "planned_sessions": group.planned_sessions,
+        "daily_task_count": group.daily_task_count,
+        "actual_sessions": group.actual_sessions,
+        "positive_sessions": group.positive_sessions,
+        "negative_sessions": group.negative_sessions,
+        "positive_rate": group.positive_rate,
+    }
 
 
 def _weekly_row(group) -> dict:

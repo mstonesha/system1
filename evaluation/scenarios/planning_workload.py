@@ -7,6 +7,10 @@ must not be treated as the same as unused deferred capacity.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
+
+Heavy/normal week labels and confound neutrality are generator
+truth. Whether an agent can recover those facts depends on the
+evidence contract, not on the generator.
 """
 
 from __future__ import annotations

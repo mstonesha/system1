@@ -15,6 +15,7 @@ from app.time import UTC
 from evaluation.agent.evidence import (
     build_dependencies_evidence,
     build_evidence,
+    build_planning_evidence,
     build_task_age_evidence,
     build_temporal_evidence,
     evidence_ids,
@@ -33,11 +34,13 @@ from evaluation.agent.prompt import (
     DEFAULT_PROMPT_VERSION,
     PROMPT_VERSION,
     PROMPT_VERSION_DEPENDENCIES_V1,
+    PROMPT_VERSION_PLANNING_V1,
     PROMPT_VERSION_TASK_AGE_V1,
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
     SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
+    SYSTEM_INSTRUCTIONS_PLANNING_V1,
     SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
     SYSTEM_INSTRUCTIONS_V1,
     SYSTEM_INSTRUCTIONS_V2,
@@ -59,9 +62,11 @@ FORBIDDEN_IN_MODEL_INPUT = (
     "noise_control",
     "interruptions_dependencies",
     "task_age_abandonment",
+    "planning_workload",
     "dataset a",
     "dataset b",
     "dataset c",
+    "dataset d",
     "dataset f",
     "ground_truth",
     "expected_patterns",
@@ -73,6 +78,9 @@ FORBIDDEN_IN_MODEL_INPUT = (
     "hr_tasks_have_materially_higher_stuck_rate",
     "monday_morning_is_a_strong_negative_exception",
     "no_robust_behavioural_pattern",
+    "heavy_weeks",
+    "heavy_week",
+    "normal_weeks",
 )
 VALID_ANALYSIS = {
     "observations": [
@@ -258,11 +266,17 @@ def _seed_dependency_sessions(db, make_task, make_daily_task):
     return waiting, notes
 
 
-def _add_daily(db, task, target_date, state="planned"):
+def _add_daily(
+    db,
+    task,
+    target_date,
+    state="planned",
+    planned_sessions=1,
+):
     daily = DailyTask(
         task_id=task.id,
         date=target_date,
-        planned_sessions=1,
+        planned_sessions=planned_sessions,
         state=state,
         sort_order=0,
     )
@@ -270,6 +284,23 @@ def _add_daily(db, task, target_date, state="planned"):
     db.commit()
     db.refresh(daily)
     return daily
+
+
+def _session_on(db, daily, local_started, outcome="progress"):
+    started_at = local_started.astimezone(UTC)
+    work = WorkSession(
+        daily_task_id=daily.id,
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=25),
+        planned_duration_seconds=1500,
+        actual_duration_seconds=1500,
+        session_state="completed",
+        outcome=outcome,
+    )
+    db.add(work)
+    db.commit()
+    db.refresh(work)
+    return work
 
 
 def _complete_task_on(db, task, daily, local_started):
@@ -370,6 +401,139 @@ def _seed_task_age_terminals(db, make_task):
     return young_created
 
 
+def _seed_planning_case(db, make_task):
+    """Planning, effort, and two-week workload rows."""
+    unfinished = make_task()
+    unfinished_daily = _add_daily(
+        db,
+        unfinished,
+        date(2026, 3, 2),
+        planned_sessions=4,
+    )
+    _session_on(
+        db,
+        unfinished_daily,
+        _local(2026, 3, 2, 10),
+        "progress",
+    )
+    _session_on(
+        db,
+        unfinished_daily,
+        _local(2026, 3, 2, 11),
+        "progress",
+    )
+
+    early = make_task()
+    early_daily = _add_daily(
+        db,
+        early,
+        date(2026, 3, 3),
+        planned_sessions=4,
+    )
+    _session_on(db, early_daily, _local(2026, 3, 3, 10), "progress")
+    _complete_task_on(db, early, early_daily, _local(2026, 3, 3, 11))
+
+    abandoned = make_task()
+    abandoned_daily = _add_daily(
+        db,
+        abandoned,
+        date(2026, 3, 4),
+        planned_sessions=4,
+    )
+    _session_on(
+        db,
+        abandoned_daily,
+        _local(2026, 3, 4, 10),
+        "progress",
+    )
+    _abandon_task_on(
+        db,
+        abandoned,
+        abandoned_daily,
+        _local(2026, 3, 4, 11),
+    )
+
+    extra = make_task()
+    extra_daily = _add_daily(
+        db,
+        extra,
+        date(2026, 3, 5),
+        planned_sessions=1,
+    )
+    _session_on(db, extra_daily, _local(2026, 3, 5, 10), "progress")
+    _session_on(db, extra_daily, _local(2026, 3, 5, 11), "progress")
+
+    implicit = make_task()
+    implicit_daily = _add_daily(
+        db,
+        implicit,
+        date(2026, 3, 6),
+        planned_sessions=None,
+    )
+    _session_on(
+        db,
+        implicit_daily,
+        _local(2026, 3, 6, 10),
+        "progress",
+    )
+
+    removed = make_task()
+    _add_daily(
+        db,
+        removed,
+        date(2026, 3, 2),
+        planned_sessions=9,
+        state="removed",
+    )
+
+    above = make_task(estimated_sessions=2)
+    above_first = _add_daily(
+        db,
+        above,
+        date(2026, 3, 2),
+        planned_sessions=2,
+    )
+    _session_on(db, above_first, _local(2026, 3, 2, 14), "progress")
+    above_last = _add_daily(
+        db,
+        above,
+        date(2026, 3, 3),
+        planned_sessions=2,
+    )
+    _session_on(db, above_last, _local(2026, 3, 3, 14), "progress")
+    _complete_task_on(db, above, above_last, _local(2026, 3, 3, 15))
+
+    near = make_task(estimated_sessions=2)
+    near_daily = _add_daily(
+        db,
+        near,
+        date(2026, 3, 4),
+        planned_sessions=2,
+    )
+    _session_on(db, near_daily, _local(2026, 3, 4, 14), "progress")
+    _complete_task_on(db, near, near_daily, _local(2026, 3, 4, 15))
+
+    below = make_task(estimated_sessions=4)
+    below_daily = _add_daily(
+        db,
+        below,
+        date(2026, 3, 5),
+        planned_sessions=2,
+    )
+    _session_on(db, below_daily, _local(2026, 3, 5, 14), "progress")
+    _complete_task_on(db, below, below_daily, _local(2026, 3, 5, 15))
+
+    load = make_task()
+    for day in (date(2026, 3, 9), date(2026, 3, 10), date(2026, 3, 11)):
+        daily = _add_daily(db, load, day, planned_sessions=5)
+        _session_on(
+            db,
+            daily,
+            _local(day.year, day.month, day.day, 10),
+            "stuck",
+        )
+
+
 def _assert_no_model_input_leak(text: str) -> None:
     lowered = text.lower()
     for token in FORBIDDEN_IN_MODEL_INPUT:
@@ -406,6 +570,9 @@ def test_evidence_module_uses_production_analytics():
     assert "stuck_task_drilldown" in text
     assert "task_abandonment_by_execution_age" in text
     assert "terminal_tasks_with_execution_age" in text
+    assert "daily_planning_summary" in text
+    assert "task_effort_estimation" in text
+    assert "weekly_workload" in text
     assert "evaluation.observe" not in text
     assert "yaml.safe_load" not in text
     assert "ground_truth" not in text
@@ -413,6 +580,7 @@ def test_evidence_module_uses_production_analytics():
     assert "noise_control" not in text
     assert "interruptions_dependencies" not in text
     assert "task_age_abandonment" not in text
+    assert "planning_workload" not in text
     assert "parse_task_category" not in text
     for path in AGENT_DIR.rglob("*.py"):
         agent_text = path.read_text(encoding="utf-8")
@@ -431,6 +599,7 @@ def test_prompt_and_run_case_do_not_load_ground_truth():
     assert "noise_control" not in prompt_text
     assert "interruptions_dependencies" not in prompt_text
     assert "task_age_abandonment" not in prompt_text
+    assert "planning_workload" not in prompt_text
     assert "ground_truth" not in run_source
     assert "yaml" not in run_source
 
@@ -703,12 +872,16 @@ FROZEN_PROMPT_SHA256 = {
     "task-age-v1": (
         "a30e903d4f9ded5a4c05bd8d3f44b8488071f0bd9e8ee3be85941ef671f82546"
     ),
+    "planning-v1": (
+        "3d7b141d8f77f7f3cd40668b6724c40dde153be986546916b4dc9b615ad3d100"
+    ),
 }
 
 
 def test_frozen_prompt_contracts_are_byte_stable():
     from evaluation.agent.prompt import (
         SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
+        SYSTEM_INSTRUCTIONS_PLANNING_V1,
     )
 
     actual = {
@@ -726,6 +899,9 @@ def test_frozen_prompt_contracts_are_byte_stable():
         ).hexdigest(),
         "task-age-v1": hashlib.sha256(
             SYSTEM_INSTRUCTIONS_TASK_AGE_V1.encode("utf-8")
+        ).hexdigest(),
+        "planning-v1": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_PLANNING_V1.encode("utf-8")
         ).hexdigest(),
     }
     assert actual == FROZEN_PROMPT_SHA256
@@ -1088,6 +1264,30 @@ def test_require_compatible_routes_dataset_b_to_case_b():
             "interruptions_dependencies",
             "task-age-v1",
         )
+    assert require_compatible(
+        "planning_workload",
+        "planning-v1",
+    ) == "case_d"
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "planning_workload",
+            "temporal-v3",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "planning_workload",
+            "task-age-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "temporal_patterns",
+            "planning-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "task_age_abandonment",
+            "planning-v1",
+        )
 
 
 def test_cli_rejects_incompatible_scenario_and_contract(capsys):
@@ -1143,6 +1343,59 @@ def test_cli_rejects_incompatible_scenario_and_contract(capsys):
         [
             "--scenario",
             "task_age_abandonment",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "planning_workload",
+            "--prompt-version",
+            "temporal-v3",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+    assert "planning-v1" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "planning_workload",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
+
+def test_cli_incompatible_planning_pair_fails_before_db_mutation(
+    monkeypatch,
+    capsys,
+):
+    def boom(*args, **kwargs):
+        raise AssertionError("eval DB must not be mutated")
+
+    monkeypatch.setattr(
+        "evaluation.agent.runner.reset_eval_schema",
+        boom,
+    )
+    monkeypatch.setattr(
+        "evaluation.agent.runner.create_eval_engine",
+        boom,
+    )
+    from evaluation.agent.runner import main as agent_main
+
+    assert agent_main(
+        [
+            "--scenario",
+            "planning_workload",
+            "--prompt-version",
+            "temporal-v3",
             "--dry-run",
         ]
     ) == 2
@@ -1388,6 +1641,276 @@ def test_run_case_task_age_dry_run_does_not_call_model(
         record["evidence"]
     )
     assert "created_at" not in persisted
+    _assert_no_model_input_leak(persisted)
+
+
+def test_planning_v1_can_be_selected():
+    from evaluation.agent.prompt import PROMPT_VERSIONS
+
+    assert PROMPT_VERSION_PLANNING_V1 == "planning-v1"
+    assert PROMPT_VERSION_PLANNING_V1 in PROMPT_VERSIONS
+    prompt = render_prompt(
+        {"case_id": "case_d"},
+        version="planning-v1",
+    )
+    assert prompt.version == "planning-v1"
+    assert prompt.system == SYSTEM_INSTRUCTIONS_PLANNING_V1
+    assert prompt.system is not SYSTEM_INSTRUCTIONS_TASK_AGE_V1
+
+
+def test_planning_prompt_keeps_planning_concepts_distinct():
+    prompt = render_prompt(
+        {"case_id": "case_d"},
+        version="planning-v1",
+    )
+    text = prompt.system.lower()
+    assert "this analysis uses contract planning-v1" in text
+    assert "daily planning versus task effort estimation" in text
+    assert "different analytical questions" in text
+    assert "unfinished work" in text
+    assert "early completion" in text
+    assert "abandonment" in text
+    assert "unused capacity is not one phenomenon" in text
+    assert "systematically overplans" in text
+    assert "do not apply a fixed threshold that defines" in text
+    assert "planned sessions are the relevant workload" in text
+    assert "more dailytasks necessarily represents more planned" in text
+    assert "avoid cherry-picking weeks" in text
+    assert "one or two extreme weeks" in text
+    assert "do not assume that more work causes worse" in text
+    assert "planning_workload" not in prompt.system
+    assert "heavy week" not in text
+    assert "normal week" not in text
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_planning_evidence_uses_production_and_reconciles(
+    db,
+    make_task,
+    monkeypatch,
+):
+    from app.analytics.planning import (
+        daily_planning_summary,
+        task_effort_estimation,
+        weekly_workload,
+    )
+    from evaluation.agent import evidence as evidence_mod
+
+    _seed_planning_case(db, make_task)
+    from_date = date(2026, 3, 2)
+    to_date = date(2026, 3, 13)
+    calls: list[str] = []
+
+    def wrap(name, fn):
+        def inner(*args, **kwargs):
+            calls.append(name)
+            return fn(*args, **kwargs)
+
+        return inner
+
+    monkeypatch.setattr(
+        evidence_mod,
+        "daily_planning_summary",
+        wrap("planning", evidence_mod.daily_planning_summary),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "task_effort_estimation",
+        wrap("effort", evidence_mod.task_effort_estimation),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "weekly_workload",
+        wrap("weeks", evidence_mod.weekly_workload),
+    )
+    evidence = build_planning_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_d",
+    )
+    assert calls == ["planning", "effort", "weeks"]
+    production = daily_planning_summary(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    effort = task_effort_estimation(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    weeks = weekly_workload(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    assert evidence["case_id"] == "case_d"
+    assert set(evidence) == {
+        "case_id",
+        "period",
+        "daily_planning",
+        "task_effort",
+        "weekly_workload",
+    }
+    planning = evidence["daily_planning"]
+    assert planning["id"] == "daily_planning"
+    assert planning["total_planned_sessions"] == (
+        production.total_planned_sessions
+    )
+    assert planning["total_actual_sessions"] == (
+        production.total_actual_sessions
+    )
+    assert planning["execution_ratio"] == production.execution_ratio
+    assert planning["total_unused_planned_sessions"] == (
+        production.total_unused_planned_sessions
+    )
+    assert planning["unused_while_unfinished"] == (
+        production.unused_while_unfinished
+    )
+    assert planning["unused_due_to_early_completion"] == (
+        production.unused_due_to_early_completion
+    )
+    assert planning["unused_on_abandonment"] == (
+        production.unused_on_abandonment
+    )
+    assert (
+        planning["unused_while_unfinished"]
+        + planning["unused_due_to_early_completion"]
+        + planning["unused_on_abandonment"]
+        == planning["total_unused_planned_sessions"]
+    )
+    assert planning["daily_tasks_without_explicit_plan"] == (
+        production.daily_tasks_without_explicit_plan
+    )
+    assert planning["daily_tasks_without_explicit_plan"] >= 1
+    assert "overplanning" not in planning
+    assert "overplanned" not in planning
+    assert "heavy" not in planning
+    assert "underplanning" not in planning
+    task_effort = evidence["task_effort"]
+    assert task_effort["id"] == "task_effort"
+    assert task_effort["completed_tasks_with_estimate"] == (
+        effort.completed_tasks_with_estimate
+    )
+    assert task_effort["mean_estimated_sessions"] == (
+        effort.mean_estimated_sessions
+    )
+    assert task_effort["mean_actual_sessions"] == (
+        effort.mean_actual_sessions
+    )
+    assert task_effort["mean_actual_to_estimated_ratio"] == (
+        effort.mean_actual_to_estimated_ratio
+    )
+    assert task_effort["median_actual_to_estimated_ratio"] == (
+        effort.median_actual_to_estimated_ratio
+    )
+    assert task_effort["below_estimate_count"] == (
+        effort.below_estimate_count
+    )
+    assert task_effort["near_estimate_count"] == effort.near_estimate_count
+    assert task_effort["above_estimate_count"] == (
+        effort.above_estimate_count
+    )
+    assert "bias" not in task_effort
+    assert "underestimated" not in task_effort
+    assert len(evidence["weekly_workload"]) == len(weeks.groups)
+    for row, group in zip(evidence["weekly_workload"], weeks.groups):
+        week_start = group.week_start_date.isoformat()
+        assert row["id"] == f"week:{week_start}"
+        assert row["week_start"] == week_start
+        assert row["planned_sessions"] == group.planned_sessions
+        assert row["daily_task_count"] == group.daily_task_count
+        assert row["actual_sessions"] == group.actual_sessions
+        assert row["positive_sessions"] == group.positive_sessions
+        assert row["negative_sessions"] == group.negative_sessions
+        assert row["positive_rate"] == group.positive_rate
+        assert "heavy" not in row
+        assert "normal" not in row
+        assert "percentile" not in row
+        assert "threshold" not in row
+    blob = serialize_evidence(evidence)
+    assert "overplanning" not in blob
+    assert "heavy_week" not in blob
+    assert "planning_workload" not in blob
+    source = inspect.getsource(build_planning_evidence)
+    assert "daily_planning_summary" in source
+    assert "task_effort_estimation" in source
+    assert "weekly_workload" in source
+    assert "overplanning" not in source
+    assert "heavy_week" not in source
+    dispatched = build_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_d",
+        version="planning-v1",
+    )
+    assert dispatched == evidence
+    known = evidence_ids(evidence)
+    assert "daily_planning" in known
+    assert "task_effort" in known
+    assert f"week:{weeks.groups[0].week_start_date.isoformat()}" in known
+    _assert_no_model_input_leak(blob)
+    with pytest.raises(ValueError, match="opaque"):
+        build_planning_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="planning_workload",
+        )
+    with pytest.raises(ValueError, match="opaque"):
+        build_temporal_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="case_d",
+        )
+
+
+def test_run_case_planning_dry_run_does_not_call_model(
+    db,
+    make_task,
+    monkeypatch,
+):
+    _seed_planning_case(db, make_task)
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("live model must not be called")
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fail_urlopen,
+    )
+    with pytest.raises(ValueError, match="not compatible"):
+        run_case(
+            db,
+            case_id="case_d",
+            from_date=date(2026, 3, 2),
+            to_date=date(2026, 3, 13),
+            dry_run=True,
+            model=None,
+            prompt_version="temporal-v1",
+        )
+    record = run_case(
+        db,
+        case_id="case_d",
+        from_date=date(2026, 3, 2),
+        to_date=date(2026, 3, 13),
+        dry_run=True,
+        model=None,
+        prompt_version="planning-v1",
+    )
+    assert record["parse_status"] == "dry_run"
+    assert record["raw_response"] is None
+    assert record["case_id"] == "case_d"
+    assert record["prompt_version"] == "planning-v1"
+    assert "ground_truth" not in record
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "planning_workload" not in persisted
+    assert "heavy_week" not in persisted
     _assert_no_model_input_leak(persisted)
 
 

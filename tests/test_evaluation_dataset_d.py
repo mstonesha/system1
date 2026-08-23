@@ -132,14 +132,83 @@ def test_ground_truth_matches_generator_constants():
     assert payload["date_range"]["end"] == expected_end.isoformat()
     assert payload["date_range"]["working_weeks"] == WORKING_WEEKS
     assert set(payload["heavy_weeks"]) == set(HEAVY_WEEKS)
+    assert payload["agent_evidence_contract"] == "planning-v1"
+    generator_truth = payload["generator_truth"]
     assert "planned_daily_sessions_exceed_actual_sessions_overall" in (
-        payload["expected_patterns"]
+        generator_truth
     )
     assert "heavy_planned_workload_weeks_have_lower_positive_outcome_rate" in (
-        payload["expected_patterns"]
+        generator_truth
     )
+    assert "expected_patterns" not in payload
     assert "no_long_term_improvement_or_decline" in (
         payload["expected_non_patterns"]
+    )
+
+
+def test_agent_evaluable_ground_truth_matches_evidence_contract():
+    payload = yaml.safe_load(GROUND_TRUTH_PATH.read_text())
+    agent_patterns = payload["agent_expected_patterns"]
+    agent_hypotheses = payload["agent_expected_hypotheses"]
+    agent_insufficient = payload["agent_expected_insufficient_evidence"]
+    able_blob = " ".join(payload["agent_should_be_able_to_say"]).lower()
+    must_blob = " ".join(payload["agent_should_not_claim"]).lower()
+    hidden = set(payload["not_agent_evaluable"])
+
+    assert "planned_sessions_exceed_actual_committed_sessions" in (
+        agent_patterns
+    )
+    assert "unused_capacity_is_mostly_unfinished_work_not_abandonment" in (
+        agent_patterns
+    )
+    assert (
+        "completed_tasks_tend_to_take_more_sessions_than_estimated_on_average"
+        in agent_patterns
+    )
+    assert (
+        "higher_planned_load_weeks_tend_to_have_lower_positive_outcome_rates"
+        in agent_patterns
+    )
+    assert hidden.isdisjoint(agent_patterns)
+    assert hidden.isdisjoint(agent_hypotheses)
+    assert "hidden_heavy_week_generator_labels" in hidden
+    assert "synthetic_workload_classes" in hidden
+    assert "generator_side_week_selection_logic" in hidden
+    assert "explicitly planned sessions exceed" in able_blob
+    assert "execution ratio is materially below 1" in able_blob
+    assert "unfinished work rather than abandonment" in able_blob
+    assert "early completion" in able_blob
+    assert "somewhat more sessions than estimated" in able_blob
+    assert "mixed rather than universal" in able_blob
+    assert "associative, not causal" in able_blob
+    assert "dailytask count alone" in able_blob
+    assert "high workload causes poor outcomes" in must_blob
+    assert "every unused planned session represents failure" in must_blob
+    assert "completing a task early is evidence of bad planning" in (
+        must_blob
+    )
+    assert "universal planned-session threshold defines overload" in (
+        must_blob
+    )
+    assert "every task is underestimated" in must_blob
+    assert "aggregate planning gap proves systematic overplanning" in (
+        must_blob
+    )
+    assert "workload_does_not_have_a_demonstrated_causal_effect" in (
+        agent_insufficient
+    )
+    assert "early_completion_is_not_planning_failure" in (
+        agent_insufficient
+    )
+    assert "dailytask_count_is_not_equivalent_to_planned_workload" in (
+        agent_insufficient
+    )
+    assert "high_planned_workload_may_make_execution_harder" in (
+        agent_hypotheses
+    )
+    assert (
+        "difficult_weeks_may_attract_more_planned_work_and_worse_outcomes"
+        in agent_hypotheses
     )
 
 
@@ -599,3 +668,98 @@ def test_analytics_exposes_dataset_d_weekly_planned_load(
     assert mean_many > mean_few + 8
     assert "heavy_week" not in weeks.__dataclass_fields__
     assert "heavy_week" not in week_13.__dataclass_fields__
+
+
+def test_agent_planning_evidence_hides_scenario_and_labels(
+    generated_eval,
+    eval_db,
+):
+    import json
+
+    from evaluation.agent.evidence import (
+        build_planning_evidence,
+        evidence_ids,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+    from evaluation.agent.runner import run_case
+
+    result = generated_eval["result"]
+    production = daily_planning_summary(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    effort = task_effort_estimation(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    weeks = weekly_workload(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    evidence = build_planning_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_d",
+    )
+    assert evidence["case_id"] == "case_d"
+    planning = evidence["daily_planning"]
+    assert planning["total_planned_sessions"] == (
+        production.total_planned_sessions
+    )
+    assert planning["unused_while_unfinished"] == (
+        production.unused_while_unfinished
+    )
+    task_effort = evidence["task_effort"]
+    assert task_effort["completed_tasks_with_estimate"] == (
+        effort.completed_tasks_with_estimate
+    )
+    assert task_effort["mean_actual_to_estimated_ratio"] == (
+        effort.mean_actual_to_estimated_ratio
+    )
+    assert [
+        row["planned_sessions"] for row in evidence["weekly_workload"]
+    ] == [group.planned_sessions for group in weeks.groups]
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(
+        evidence,
+        version="planning-v1",
+    ).combined_text()
+    for token in (
+        "planning_workload",
+        "expected_patterns",
+        "generator_truth",
+        "heavy_weeks",
+        "heavy_week",
+        "ground_truth",
+        "dataset d",
+        "many_small",
+        "few_fat",
+    ):
+        assert token not in blob.lower()
+        assert token not in prompt.lower()
+    known = evidence_ids(evidence)
+    assert "daily_planning" in known
+    assert "task_effort" in known
+    assert evidence["weekly_workload"][0]["id"] in known
+    record = run_case(
+        eval_db,
+        case_id="case_d",
+        from_date=result.start_date,
+        to_date=result.end_date,
+        dry_run=True,
+        model=None,
+        prompt_version="planning-v1",
+    )
+    assert record["case_id"] == "case_d"
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "planning_workload" not in persisted.lower()
+    assert "heavy_week" not in persisted.lower()
+    assert "generator_truth" not in persisted.lower()
+
