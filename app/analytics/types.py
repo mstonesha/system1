@@ -9,6 +9,10 @@ from first qualifying Today appearance to terminal date.
 Planning families measure DailyTask capacity, completed-Task
 effort estimation, and local ISO-week workload separately.
 
+Morning-versus-afternoon windows measure committed session
+outcomes in caller-chosen local date ranges. They do not
+label periods as historical, recent, or changed.
+
 Rates are unrounded floating-point proportions in [0, 1],
 not percentages. Rounding belongs at presentation
 boundaries, not in this layer.
@@ -224,3 +228,64 @@ class WeeklyWorkloadAnalysis:
     to_date: date
     timezone: str
     groups: tuple[WeeklyWorkloadGroup, ...]
+
+
+@dataclass(frozen=True)
+class MorningAfternoonWindow:
+    """Committed session outcomes for morning vs afternoon.
+
+    Morning is the existing ``morning`` daypart (09:00–11:59).
+    Afternoon combines ``early_afternoon`` and ``late_afternoon``
+    (12:00–17:59). Classification uses ``WorkSession.started_at``
+    in ``APP_TIMEZONE``, not session end time.
+
+    Rates and ``positive_rate_gap`` are None when the relevant
+    side has no observations. ``positive_rate_gap`` is
+    morning_positive_rate − afternoon_positive_rate.
+    """
+
+    from_date: date
+    to_date: date
+    timezone: str
+    morning_session_count: int
+    morning_positive_count: int
+    morning_negative_count: int
+    morning_positive_rate: float | None
+    afternoon_session_count: int
+    afternoon_positive_count: int
+    afternoon_negative_count: int
+    afternoon_positive_rate: float | None
+    positive_rate_gap: float | None
+
+
+@dataclass(frozen=True)
+class MorningAfternoonWindowComparison:
+    """Two explicit windows and their arithmetic rate differences."""
+
+    current: MorningAfternoonWindow
+    baseline: MorningAfternoonWindow
+    morning_rate_change: float | None
+    afternoon_rate_change: float | None
+    gap_change: float | None
+
+
+@dataclass(frozen=True)
+class WeeklyMorningAfternoonGroup:
+    week_start_date: date
+    morning_session_count: int
+    morning_positive_count: int
+    morning_negative_count: int
+    morning_positive_rate: float | None
+    afternoon_session_count: int
+    afternoon_positive_count: int
+    afternoon_negative_count: int
+    afternoon_positive_rate: float | None
+    positive_rate_gap: float | None
+
+
+@dataclass(frozen=True)
+class WeeklyMorningAfternoonAnalysis:
+    from_date: date
+    to_date: date
+    timezone: str
+    groups: tuple[WeeklyMorningAfternoonGroup, ...]

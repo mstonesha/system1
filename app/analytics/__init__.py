@@ -5,6 +5,12 @@ evaluation code, and it does not interpret results (no
 recommendations, significance, or best-day fields).
 """
 
+from app.analytics.change import (
+    compare_morning_afternoon_windows,
+    morning_afternoon_window,
+    rolling_window_dates,
+    weekly_morning_afternoon_outcomes,
+)
 from app.analytics.dayparts import (
     DAYPART_NAMES,
     DAYPARTS,
@@ -34,6 +40,8 @@ from app.analytics.types import (
     DailyPlanningSummary,
     DaypartOutcomeGroup,
     InterruptionOutcomeGroup,
+    MorningAfternoonWindow,
+    MorningAfternoonWindowComparison,
     OutcomeAnalysis,
     TaskAgeAnalysis,
     TaskAgeBucket,
@@ -41,6 +49,8 @@ from app.analytics.types import (
     TerminalTaskAge,
     WeekdayDaypartOutcomeGroup,
     WeekdayOutcomeGroup,
+    WeeklyMorningAfternoonAnalysis,
+    WeeklyMorningAfternoonGroup,
     WeeklyWorkloadAnalysis,
     WeeklyWorkloadGroup,
 )
@@ -55,6 +65,8 @@ __all__ = [
     "DailyPlanningSummary",
     "DaypartOutcomeGroup",
     "InterruptionOutcomeGroup",
+    "MorningAfternoonWindow",
+    "MorningAfternoonWindowComparison",
     "OutcomeAnalysis",
     "TaskAgeAnalysis",
     "TaskAgeBucket",
@@ -62,11 +74,16 @@ __all__ = [
     "TerminalTaskAge",
     "WeekdayDaypartOutcomeGroup",
     "WeekdayOutcomeGroup",
+    "WeeklyMorningAfternoonAnalysis",
+    "WeeklyMorningAfternoonGroup",
     "WeeklyWorkloadAnalysis",
     "WeeklyWorkloadGroup",
     "classify_daypart",
     "classify_execution_age_days",
+    "compare_morning_afternoon_windows",
     "daily_planning_summary",
+    "morning_afternoon_window",
+    "rolling_window_dates",
     "session_outcomes_by_daypart",
     "session_outcomes_by_interruption",
     "session_outcomes_by_weekday",
@@ -74,5 +91,6 @@ __all__ = [
     "task_abandonment_by_execution_age",
     "task_effort_estimation",
     "terminal_tasks_with_execution_age",
+    "weekly_morning_afternoon_outcomes",
     "weekly_workload",
 ]

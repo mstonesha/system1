@@ -1,5 +1,5 @@
 import inspect
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -7,6 +7,11 @@ import yaml
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 
+from app.analytics.change import (
+    morning_afternoon_window,
+    rolling_window_dates,
+    weekly_morning_afternoon_outcomes,
+)
 from app.analytics.outcomes import (
     session_outcomes_by_daypart,
     session_outcomes_by_interruption,
@@ -633,3 +638,67 @@ def test_analytics_dataset_f_effort_is_broadly_neutral(
     assert 0.75 <= effort.mean_actual_to_estimated_ratio <= 1.25
     assert 0.75 <= effort.median_actual_to_estimated_ratio <= 1.25
     assert "recommendation" not in effort.__dataclass_fields__
+
+
+def test_analytics_dataset_f_morning_afternoon_stays_noisy(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    full = morning_afternoon_window(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    recent_from, recent_to = rolling_window_dates(
+        result.end_date,
+        weeks=4,
+    )
+    recent = morning_afternoon_window(
+        eval_db,
+        from_date=recent_from,
+        to_date=recent_to,
+    )
+    early = morning_afternoon_window(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.start_date + timedelta(weeks=8) - timedelta(days=1),
+    )
+    late_from, late_to = rolling_window_dates(
+        result.end_date,
+        weeks=8,
+    )
+    late = morning_afternoon_window(
+        eval_db,
+        from_date=late_from,
+        to_date=late_to,
+    )
+    weeks = weekly_morning_afternoon_outcomes(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    short_leads = [
+        group
+        for group in weeks.groups
+        if group.positive_rate_gap is not None
+        and abs(group.positive_rate_gap) >= 0.08
+    ]
+    assert abs(full.positive_rate_gap) <= 0.12
+    assert full.morning_session_count > 0
+    assert full.afternoon_session_count > 0
+    assert recent.positive_rate_gap is not None
+    assert (
+        abs(recent.positive_rate_gap) >= 0.05
+        or short_leads
+    )
+    assert not (
+        early.positive_rate_gap >= 0.18
+        and abs(late.positive_rate_gap) <= 0.08
+    )
+    assert abs(
+        (early.positive_rate_gap or 0)
+        - (late.positive_rate_gap or 0)
+    ) <= 0.18
+    assert "behaviour_changed" not in full.__dataclass_fields__
+    assert "phase" not in weeks.__dataclass_fields__

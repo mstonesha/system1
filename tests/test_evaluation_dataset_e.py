@@ -1,5 +1,5 @@
 import inspect
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -7,6 +7,12 @@ import yaml
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 
+from app.analytics.change import (
+    compare_morning_afternoon_windows,
+    morning_afternoon_window,
+    rolling_window_dates,
+    weekly_morning_afternoon_outcomes,
+)
 from app.config import get_settings
 from app.models import DailyTask, Task, WorkSession
 from evaluation.catalog import parse_task_category
@@ -487,3 +493,126 @@ def test_morning_afternoon_mix_is_spread_across_weekdays(rows):
             if row["period"] == period
         }
         assert weekdays == {0, 1, 2, 3, 4}
+
+
+def _week_span(first: int, last: int) -> tuple[date, date]:
+    start = START_DATE + timedelta(weeks=first - 1)
+    end = START_DATE + timedelta(weeks=last) - timedelta(days=1)
+    return start, end
+
+
+def test_analytics_recovers_dataset_e_window_progression(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    full = morning_afternoon_window(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    historical = morning_afternoon_window(
+        eval_db,
+        from_date=_week_span(*HISTORICAL_WEEKS)[0],
+        to_date=_week_span(*HISTORICAL_WEEKS)[1],
+    )
+    transition = morning_afternoon_window(
+        eval_db,
+        from_date=_week_span(*TRANSITION_WEEKS)[0],
+        to_date=_week_span(*TRANSITION_WEEKS)[1],
+    )
+    recent_from, recent_to = rolling_window_dates(
+        result.end_date,
+        weeks=8,
+    )
+    recent = morning_afternoon_window(
+        eval_db,
+        from_date=recent_from,
+        to_date=recent_to,
+    )
+    recent16_from, recent16_to = rolling_window_dates(
+        result.end_date,
+        weeks=16,
+    )
+    preceding_to = recent16_from - timedelta(days=1)
+    preceding_from, preceding_to = rolling_window_dates(
+        preceding_to,
+        weeks=16,
+    )
+    compared = compare_morning_afternoon_windows(
+        eval_db,
+        current_from_date=recent16_from,
+        current_to_date=recent16_to,
+        baseline_from_date=preceding_from,
+        baseline_to_date=preceding_to,
+    )
+
+    assert full.positive_rate_gap >= 0.08
+    assert 0.64 <= full.morning_positive_rate <= 0.78
+    assert historical.positive_rate_gap >= 0.18
+    assert historical.morning_positive_rate > historical.afternoon_positive_rate
+    assert abs(recent.positive_rate_gap) <= 0.14
+    assert recent.positive_rate_gap <= 0.10
+    assert transition.positive_rate_gap < historical.positive_rate_gap - 0.04
+    assert compared.baseline.positive_rate_gap >= 0.10
+    assert compared.current.positive_rate_gap < (
+        compared.baseline.positive_rate_gap - 0.08
+    )
+    assert compared.gap_change < 0
+    forbidden = {
+        "behaviour_changed",
+        "improved",
+        "declined",
+        "regime",
+        "phase",
+        "recommendation",
+        "confidence",
+        "significance",
+    }
+    assert forbidden.isdisjoint(full.__dataclass_fields__)
+    assert forbidden.isdisjoint(compared.__dataclass_fields__)
+
+
+def test_analytics_exposes_dataset_e_weekly_series(
+    generated_eval,
+    eval_db,
+):
+    result = generated_eval["result"]
+    weeks = weekly_morning_afternoon_outcomes(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    by_start = {
+        group.week_start_date: group for group in weeks.groups
+    }
+    historical_starts = [
+        START_DATE + timedelta(weeks=week - 1)
+        for week in range(HISTORICAL_WEEKS[0], HISTORICAL_WEEKS[1] + 1)
+    ]
+    recent_starts = [
+        START_DATE + timedelta(weeks=week - 1)
+        for week in range(RECENT_WEEKS[0], RECENT_WEEKS[1] + 1)
+        if week != DECOY_WEEK
+    ]
+    early_positive = [
+        by_start[start]
+        for start in historical_starts
+        if start in by_start
+        and by_start[start].positive_rate_gap is not None
+        and by_start[start].positive_rate_gap >= 0.10
+    ]
+    recent_mixed = [
+        by_start[start]
+        for start in recent_starts
+        if start in by_start
+        and by_start[start].positive_rate_gap is not None
+        and by_start[start].positive_rate_gap < 0.18
+    ]
+    decoy = by_start[START_DATE + timedelta(weeks=DECOY_WEEK - 1)]
+    assert len(early_positive) >= 12
+    assert len(recent_mixed) >= 4
+    assert decoy.positive_rate_gap >= 0.15
+    assert decoy.morning_positive_rate >= 0.68
+    assert "anomalous" not in decoy.__dataclass_fields__
+    assert "misleading" not in weeks.__dataclass_fields__
