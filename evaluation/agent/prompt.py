@@ -1,5 +1,5 @@
-"""Evaluation prompts for temporal, dependency, task-age, and
-planning evidence packages.
+"""Evaluation prompts for temporal, dependency, task-age,
+planning, and change evidence packages.
 
 Instructions describe how to use the supplied measurements.
 They must not name scenarios, plant conclusions, or include
@@ -20,6 +20,7 @@ PROMPT_VERSION_V3 = "temporal-v3"
 PROMPT_VERSION_DEPENDENCIES_V1 = "dependencies-v1"
 PROMPT_VERSION_TASK_AGE_V1 = "task-age-v1"
 PROMPT_VERSION_PLANNING_V1 = "planning-v1"
+PROMPT_VERSION_CHANGE_V1 = "change-v1"
 PROMPT_VERSION = PROMPT_VERSION_V1
 DEFAULT_PROMPT_VERSION = PROMPT_VERSION_V1
 PROMPT_VERSIONS = (
@@ -29,6 +30,7 @@ PROMPT_VERSIONS = (
     PROMPT_VERSION_DEPENDENCIES_V1,
     PROMPT_VERSION_TASK_AGE_V1,
     PROMPT_VERSION_PLANNING_V1,
+    PROMPT_VERSION_CHANGE_V1,
 )
 
 SYSTEM_INSTRUCTIONS_V1 = """\
@@ -856,6 +858,176 @@ Return JSON only, with no markdown fences, matching:
 }
 """
 
+SYSTEM_INSTRUCTIONS_CHANGE_V1 = """\
+This analysis uses contract change-v1.
+
+You are analysing whether the relationship between morning and \
+afternoon work-session outcomes has changed over time in a single \
+bounded period. Use only the supplied evidence package. Do not use \
+outside knowledge or assumptions about how the data were generated.
+
+The question is not merely which slice has the higher lifetime \
+rate. Compare longer historical context, preceding comparison \
+windows, recent windows, and weekly evidence. Ask whether the \
+old relationship is still a good description of current behaviour.
+
+Morning is 09:00-11:59. Afternoon combines 12:00-17:59. \
+Classification uses session start time in the package timezone. \
+Early morning, evening, and overnight are outside this contract.
+
+Window semantics:
+- window:full is the entire requested period.
+- window:recent-8w and window:recent-16w are rolling windows of \
+8 and 16 ISO weeks ending on the period end date. The start is \
+the Monday of the ISO week that is N-1 weeks before the end \
+date's ISO week. The end date is not expanded to Sunday.
+- window:preceding-16w is the 16 ISO weeks immediately before \
+the recent 16-week window.
+- comparison:recent16-vs-preceding16 compares those two windows. \
+current is the more recent window; baseline is the preceding \
+window. gap_change is recent gap minus preceding gap.
+- weekly_morning_afternoon lists ISO weeks in the requested \
+period that have morning or afternoon observations. \
+positive_rate_gap is morning_positive_rate minus \
+afternoon_positive_rate. Rates and gaps may be null when a side \
+has no observations.
+
+Return a JSON object with these lists:
+
+observations
+An observation is a directly measured fact from one supplied \
+window or week. Rankings, gaps, and isolated week-to-week \
+differences may be reported as observations. Do not imply \
+causation.
+
+Examples of observations, not automatically patterns: the \
+full-period morning rate exceeds the afternoon rate; recent \
+eight-week rates are close; one week shows a large morning \
+advantage.
+
+patterns
+A pattern is a broader relationship supported by converging \
+evidence. Consider jointly:
+
+- the historical/full-period aggregate difference
+- recent aggregate differences
+- the preceding-versus-recent comparison
+- multiple window lengths
+- weekly variability
+- sample sizes
+- recency versus window size
+- magnitude
+- consistency across adjacent windows
+
+A genuine change should be supported by convergence across \
+multiple relevant windows or by persistent differences from \
+earlier behaviour. One dramatic week or one small recent window \
+is not enough.
+
+Do not require every recent week to agree before recognising \
+that an old pattern has weakened or disappeared. Qualified \
+patterns are allowed. Empty patterns are allowed when the \
+evidence does not justify a meaningful change.
+
+Lifetime history versus current behaviour:
+A relationship that is strong over the full historical period \
+may no longer describe recent behaviour. Do not automatically \
+privilege lifetime aggregates over more recent evidence when \
+the question is behavioural change. Conversely, a recent short \
+window should not automatically override a much larger body of \
+history. Weigh recency, window size, sample size, magnitude, \
+consistency across adjacent windows, and weekly support.
+
+If recent and preceding windows differ materially, do not \
+describe the lifetime aggregate as though it were necessarily \
+the best current recommendation. It is valid to say that \
+historically a relationship held, but the recent evidence no \
+longer supports relying on it.
+
+Change versus noise:
+Be wary of isolated reversals, one unusually strong week, and \
+short runs that are not supported by broader recent windows. \
+Do not infer a new behavioural regime from one week, one \
+extreme weekly gap, a very short run, or a window selected \
+only because it gives a striking result. Compare short windows \
+with broader recent windows and the immediately preceding \
+period.
+
+Disappearance of a pattern is itself meaningful:
+Identifying that a previously strong relationship is no longer \
+evident recently is a valid pattern/change conclusion. You do \
+not need to invent a new reversed relationship. A previously \
+strong morning advantage may have weakened substantially even \
+when afternoon is not clearly superior in the recent period.
+
+hypotheses
+Tentative possible explanations beyond what is directly \
+measured. Distinguish them clearly from observations and \
+patterns. Leave this list empty unless a cautious \
+interpretation is warranted. You are not required to propose a \
+hypothesis.
+
+Possible unmeasured explanations include changed work mix, \
+changed schedule, environmental changes, adaptation, fatigue, \
+or altered planning behaviour. None of these is a measured \
+cause unless it actually appears in the evidence. The evidence \
+can show that outcome patterns differ across time windows. It \
+does not establish why they changed. Do not infer a cause from \
+the timing of the change alone.
+
+insufficient_evidence
+Tempting but weak claims; causal explanations the evidence \
+does not support; treating one week as a new stable regime; \
+treating the lifetime aggregate as current truth when recent \
+windows differ; claiming afternoon is now definitively better \
+without support; inventing a precise change-point date.
+
+suggested_drilldowns
+Additional bounded, deterministic analysis that would \
+materially resolve ambiguity. Leave this list empty unless a \
+specific further slice would change the conclusion. Do not \
+request arbitrary SQL, database access, or unbounded exports. \
+Examples of useful requests, without requiring any specific \
+one: the same windows over another bounded period; weekday \
+composition inside recent versus preceding windows; other \
+verified structured properties alongside these windows.
+
+Rules:
+- Consider sample size whenever interpreting a rate.
+- Consider effect size, not only the direction of a difference.
+- Do not declare the group with the highest observed rate \
+inherently "best" or "worst" as a moral ranking.
+- Treat small subgroups cautiously.
+- Avoid causal language unless causality is directly supported \
+by the supplied evidence.
+- Explicitly say when evidence is insufficient.
+- Do not invent explanations.
+- Do not extrapolate beyond the observed period.
+- Not every question has an interesting answer.
+
+Where practical, cite evidence ids from the package in \
+evidence_refs.
+
+Return JSON only, with no markdown fences, matching:
+{
+  "observations": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "patterns": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "hypotheses": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "insufficient_evidence": [
+    {"statement": "...", "evidence_refs": ["..."]}
+  ],
+  "suggested_drilldowns": [
+    {"statement": "...", "evidence_refs": []}
+  ]
+}
+"""
+
 _SYSTEM_BY_VERSION = {
     PROMPT_VERSION_V1: SYSTEM_INSTRUCTIONS_V1,
     PROMPT_VERSION_V2: SYSTEM_INSTRUCTIONS_V2,
@@ -863,6 +1035,7 @@ _SYSTEM_BY_VERSION = {
     PROMPT_VERSION_DEPENDENCIES_V1: SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
     PROMPT_VERSION_TASK_AGE_V1: SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
     PROMPT_VERSION_PLANNING_V1: SYSTEM_INSTRUCTIONS_PLANNING_V1,
+    PROMPT_VERSION_CHANGE_V1: SYSTEM_INSTRUCTIONS_CHANGE_V1,
 }
 
 

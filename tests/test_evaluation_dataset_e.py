@@ -101,17 +101,85 @@ def test_ground_truth_matches_generator_constants():
     assert payload["phases"]["transition"] == list(TRANSITION_WEEKS)
     assert payload["phases"]["recent"] == list(RECENT_WEEKS)
     assert payload["decoy_week"] == DECOY_WEEK
+    assert payload["agent_evidence_contract"] == "change-v1"
+    generator_truth = payload["generator_truth"]
     assert "historical_morning_advantage_is_strong" in (
-        payload["expected_patterns"]
+        generator_truth
     )
     assert "lifetime_average_overstates_current_morning_advantage" in (
-        payload["expected_patterns"]
+        generator_truth
     )
+    assert "expected_patterns" not in payload
     assert "no_meaningful_weekday_effect" in (
         payload["expected_non_patterns"]
     )
     assert "no_workload_regime_explaining_the_change" in (
         payload["expected_non_patterns"]
+    )
+
+
+def test_agent_evaluable_ground_truth_matches_evidence_contract():
+    payload = yaml.safe_load(GROUND_TRUTH_PATH.read_text())
+    agent_patterns = payload["agent_expected_patterns"]
+    agent_hypotheses = payload["agent_expected_hypotheses"]
+    agent_insufficient = payload["agent_expected_insufficient_evidence"]
+    able_blob = " ".join(payload["agent_should_be_able_to_say"]).lower()
+    must_blob = " ".join(payload["agent_should_not_claim"]).lower()
+    hidden = set(payload["not_agent_evaluable"])
+
+    assert "full_period_still_shows_a_morning_advantage" in (
+        agent_patterns
+    )
+    assert (
+        "full_period_relationship_is_not_representative_of_recent_behaviour"
+        in agent_patterns
+    )
+    assert (
+        "recent_windows_show_little_or_no_meaningful_morning_advantage"
+        in agent_patterns
+    )
+    assert (
+        "morning_afternoon_gap_has_materially_weakened"
+        in agent_patterns
+    )
+    assert (
+        "evidence_supports_change_not_necessarily_a_stable_reversal"
+        in agent_patterns
+    )
+    assert hidden.isdisjoint(agent_patterns)
+    assert hidden.isdisjoint(agent_hypotheses)
+    assert "generator_phase_labels" in hidden
+    assert "hidden_decoy_week_identities" in hidden
+    assert "exact_planted_transition_week" in hidden
+    assert "full-period data still shows a morning advantage" in (
+        able_blob
+    )
+    assert "not representative of the most recent behaviour" in (
+        able_blob
+    )
+    assert "little or no meaningful morning advantage" in able_blob
+    assert "preceding comparable window had a much larger" in able_blob
+    assert "materially weakened" in able_blob
+    assert "not necessarily a stable reversal" in able_blob
+    assert "new persistent regimes" in able_blob
+    assert "does not establish why the change occurred" in able_blob
+    assert "afternoon is now definitively better" in must_blob
+    assert "one recent strong week establishes a new morning" in (
+        must_blob
+    )
+    assert "old lifetime pattern should still be used" in must_blob
+    assert "precise change-point date" in must_blob
+    assert "afternoon_is_not_shown_to_be_definitively_better" in (
+        agent_insufficient
+    )
+    assert "evidence_does_not_establish_why_the_change_occurred" in (
+        agent_insufficient
+    )
+    assert "no_precise_change_point_date_is_supplied" in (
+        agent_insufficient
+    )
+    assert "changed_work_mix_may_explain_the_shift" in (
+        agent_hypotheses
     )
 
 
@@ -616,3 +684,105 @@ def test_analytics_exposes_dataset_e_weekly_series(
     assert decoy.morning_positive_rate >= 0.68
     assert "anomalous" not in decoy.__dataclass_fields__
     assert "misleading" not in weeks.__dataclass_fields__
+
+
+def test_agent_change_evidence_hides_scenario_and_phase_labels(
+    generated_eval,
+    eval_db,
+):
+    import json
+    from datetime import timedelta
+
+    from evaluation.agent.evidence import (
+        build_change_evidence,
+        evidence_ids,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+    from evaluation.agent.runner import run_case
+
+    result = generated_eval["result"]
+    production = morning_afternoon_window(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    recent16_from, recent16_to = rolling_window_dates(
+        result.end_date,
+        weeks=16,
+    )
+    preceding_from, preceding_to = rolling_window_dates(
+        recent16_from - timedelta(days=1),
+        weeks=16,
+    )
+    weeks = weekly_morning_afternoon_outcomes(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+    )
+    evidence = build_change_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_e",
+    )
+    assert evidence["case_id"] == "case_e"
+    assert evidence["full_period"]["morning_n"] == (
+        production.morning_session_count
+    )
+    assert evidence["full_period"]["positive_rate_gap"] == (
+        production.positive_rate_gap
+    )
+    recent16 = next(
+        row
+        for row in evidence["recent_windows"]
+        if row["id"] == "window:recent-16w"
+    )
+    assert recent16["from"] == recent16_from.isoformat()
+    assert recent16["to"] == recent16_to.isoformat()
+    preceding = evidence["preceding_windows"][0]
+    assert preceding["from"] == preceding_from.isoformat()
+    assert preceding["to"] == preceding_to.isoformat()
+    assert [
+        row["week_start"] for row in evidence["weekly_morning_afternoon"]
+    ] == [group.week_start_date.isoformat() for group in weeks.groups]
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(
+        evidence,
+        version="change-v1",
+    ).combined_text()
+    for token in (
+        "behaviour_change",
+        "expected_patterns",
+        "generator_truth",
+        "historical_phase",
+        "transition_phase",
+        "recent_phase",
+        "decoy_week",
+        "decoy",
+        "ground_truth",
+        "dataset e",
+    ):
+        assert token not in blob.lower()
+        assert token not in prompt.lower()
+    known = evidence_ids(evidence)
+    assert "window:full" in known
+    assert "comparison:recent16-vs-preceding16" in known
+    assert evidence["weekly_morning_afternoon"][0]["id"] in known
+    record = run_case(
+        eval_db,
+        case_id="case_e",
+        from_date=result.start_date,
+        to_date=result.end_date,
+        dry_run=True,
+        model=None,
+        prompt_version="change-v1",
+    )
+    assert record["case_id"] == "case_e"
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "behaviour_change" not in persisted.lower()
+    assert "decoy" not in persisted.lower()
+    assert "historical_phase" not in persisted.lower()
+

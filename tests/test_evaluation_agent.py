@@ -13,6 +13,7 @@ import pytest
 from app.models import DailyTask, WorkSession
 from app.time import UTC
 from evaluation.agent.evidence import (
+    build_change_evidence,
     build_dependencies_evidence,
     build_evidence,
     build_planning_evidence,
@@ -33,12 +34,14 @@ from evaluation.agent.model import (
 from evaluation.agent.prompt import (
     DEFAULT_PROMPT_VERSION,
     PROMPT_VERSION,
+    PROMPT_VERSION_CHANGE_V1,
     PROMPT_VERSION_DEPENDENCIES_V1,
     PROMPT_VERSION_PLANNING_V1,
     PROMPT_VERSION_TASK_AGE_V1,
     PROMPT_VERSION_V1,
     PROMPT_VERSION_V2,
     PROMPT_VERSION_V3,
+    SYSTEM_INSTRUCTIONS_CHANGE_V1,
     SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
     SYSTEM_INSTRUCTIONS_PLANNING_V1,
     SYSTEM_INSTRUCTIONS_TASK_AGE_V1,
@@ -63,10 +66,12 @@ FORBIDDEN_IN_MODEL_INPUT = (
     "interruptions_dependencies",
     "task_age_abandonment",
     "planning_workload",
+    "behaviour_change",
     "dataset a",
     "dataset b",
     "dataset c",
     "dataset d",
+    "dataset e",
     "dataset f",
     "ground_truth",
     "expected_patterns",
@@ -81,6 +86,11 @@ FORBIDDEN_IN_MODEL_INPUT = (
     "heavy_weeks",
     "heavy_week",
     "normal_weeks",
+    "decoy_week",
+    "decoy",
+    "historical_phase",
+    "transition_phase",
+    "recent_phase",
 )
 VALID_ANALYSIS = {
     "observations": [
@@ -534,6 +544,66 @@ def _seed_planning_case(db, make_task):
         )
 
 
+def _seed_change_sessions(db, make_task, make_daily_task):
+    """Morning/afternoon sessions across earlier and later weeks."""
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 10),
+        "progress",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 14),
+        "stuck",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 10),
+        "complete",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 15),
+        "paused",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 4, 6, 10),
+        "stuck",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 4, 6, 14),
+        "progress",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 4, 20, 10),
+        "progress",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 4, 20, 14),
+        "stuck",
+    )
+
+
 def _assert_no_model_input_leak(text: str) -> None:
     lowered = text.lower()
     for token in FORBIDDEN_IN_MODEL_INPUT:
@@ -573,6 +643,8 @@ def test_evidence_module_uses_production_analytics():
     assert "daily_planning_summary" in text
     assert "task_effort_estimation" in text
     assert "weekly_workload" in text
+    assert "compare_morning_afternoon_windows" in text
+    assert "rolling_window_dates" in text
     assert "evaluation.observe" not in text
     assert "yaml.safe_load" not in text
     assert "ground_truth" not in text
@@ -581,6 +653,7 @@ def test_evidence_module_uses_production_analytics():
     assert "interruptions_dependencies" not in text
     assert "task_age_abandonment" not in text
     assert "planning_workload" not in text
+    assert "behaviour_change" not in text
     assert "parse_task_category" not in text
     for path in AGENT_DIR.rglob("*.py"):
         agent_text = path.read_text(encoding="utf-8")
@@ -600,6 +673,7 @@ def test_prompt_and_run_case_do_not_load_ground_truth():
     assert "interruptions_dependencies" not in prompt_text
     assert "task_age_abandonment" not in prompt_text
     assert "planning_workload" not in prompt_text
+    assert "behaviour_change" not in prompt_text
     assert "ground_truth" not in run_source
     assert "yaml" not in run_source
 
@@ -875,11 +949,15 @@ FROZEN_PROMPT_SHA256 = {
     "planning-v1": (
         "3d7b141d8f77f7f3cd40668b6724c40dde153be986546916b4dc9b615ad3d100"
     ),
+    "change-v1": (
+        "8a64d729f74c3864d5f71dbef83db597383fde88b621906a9f8d2bc0b9bd5b7e"
+    ),
 }
 
 
 def test_frozen_prompt_contracts_are_byte_stable():
     from evaluation.agent.prompt import (
+        SYSTEM_INSTRUCTIONS_CHANGE_V1,
         SYSTEM_INSTRUCTIONS_DEPENDENCIES_V1,
         SYSTEM_INSTRUCTIONS_PLANNING_V1,
     )
@@ -902,6 +980,9 @@ def test_frozen_prompt_contracts_are_byte_stable():
         ).hexdigest(),
         "planning-v1": hashlib.sha256(
             SYSTEM_INSTRUCTIONS_PLANNING_V1.encode("utf-8")
+        ).hexdigest(),
+        "change-v1": hashlib.sha256(
+            SYSTEM_INSTRUCTIONS_CHANGE_V1.encode("utf-8")
         ).hexdigest(),
     }
     assert actual == FROZEN_PROMPT_SHA256
@@ -1288,6 +1369,30 @@ def test_require_compatible_routes_dataset_b_to_case_b():
             "task_age_abandonment",
             "planning-v1",
         )
+    assert require_compatible(
+        "behaviour_change",
+        "change-v1",
+    ) == "case_e"
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "behaviour_change",
+            "temporal-v3",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "behaviour_change",
+            "planning-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "temporal_patterns",
+            "change-v1",
+        )
+    with pytest.raises(ValueError, match="not compatible"):
+        require_compatible(
+            "planning_workload",
+            "change-v1",
+        )
 
 
 def test_cli_rejects_incompatible_scenario_and_contract(capsys):
@@ -1372,6 +1477,29 @@ def test_cli_rejects_incompatible_scenario_and_contract(capsys):
     err = capsys.readouterr().err
     assert "not compatible" in err
 
+    assert agent_main(
+        [
+            "--scenario",
+            "behaviour_change",
+            "--prompt-version",
+            "temporal-v3",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+    assert "change-v1" in err
+
+    assert agent_main(
+        [
+            "--scenario",
+            "behaviour_change",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
 
 def test_cli_incompatible_planning_pair_fails_before_db_mutation(
     monkeypatch,
@@ -1394,6 +1522,36 @@ def test_cli_incompatible_planning_pair_fails_before_db_mutation(
         [
             "--scenario",
             "planning_workload",
+            "--prompt-version",
+            "temporal-v3",
+            "--dry-run",
+        ]
+    ) == 2
+    err = capsys.readouterr().err
+    assert "not compatible" in err
+
+
+def test_cli_incompatible_change_pair_fails_before_db_mutation(
+    monkeypatch,
+    capsys,
+):
+    def boom(*args, **kwargs):
+        raise AssertionError("eval DB must not be mutated")
+
+    monkeypatch.setattr(
+        "evaluation.agent.runner.reset_eval_schema",
+        boom,
+    )
+    monkeypatch.setattr(
+        "evaluation.agent.runner.create_eval_engine",
+        boom,
+    )
+    from evaluation.agent.runner import main as agent_main
+
+    assert agent_main(
+        [
+            "--scenario",
+            "behaviour_change",
             "--prompt-version",
             "temporal-v3",
             "--dry-run",
@@ -1911,6 +2069,324 @@ def test_run_case_planning_dry_run_does_not_call_model(
     )
     assert "planning_workload" not in persisted
     assert "heavy_week" not in persisted
+    _assert_no_model_input_leak(persisted)
+
+
+def test_change_v1_can_be_selected():
+    from evaluation.agent.prompt import PROMPT_VERSIONS
+
+    assert PROMPT_VERSION_CHANGE_V1 == "change-v1"
+    assert PROMPT_VERSION_CHANGE_V1 in PROMPT_VERSIONS
+    prompt = render_prompt(
+        {"case_id": "case_e"},
+        version="change-v1",
+    )
+    assert prompt.version == "change-v1"
+    assert prompt.system == SYSTEM_INSTRUCTIONS_CHANGE_V1
+    assert prompt.system is not SYSTEM_INSTRUCTIONS_PLANNING_V1
+
+
+def test_change_prompt_distinguishes_history_change_and_noise():
+    prompt = render_prompt(
+        {"case_id": "case_e"},
+        version="change-v1",
+    )
+    text = prompt.system.lower()
+    assert "this analysis uses contract change-v1" in text
+    assert "full historical period" in text
+    assert "may no longer describe recent behaviour" in text
+    assert "do not automatically privilege lifetime aggregates" in text
+    assert "one dramatic week or one small recent window" in text
+    assert "do not require every recent week to agree" in text
+    assert "previously strong relationship is no longer" in text
+    assert "do not need to invent a new reversed relationship" in text
+    assert "do not infer a new behavioural regime from one week" in text
+    assert "does not establish why they changed" in text
+    assert "do not infer a cause from the timing" in text
+    assert "behaviour_change" not in prompt.system
+    assert "decoy" not in text
+    assert "historical_phase" not in text
+    assert "transition_phase" not in text
+    _assert_no_model_input_leak(prompt.combined_text())
+
+
+def test_change_evidence_uses_production_and_reconciles(
+    db,
+    make_task,
+    make_daily_task,
+    monkeypatch,
+):
+    from datetime import timedelta
+
+    from app.analytics.change import (
+        compare_morning_afternoon_windows,
+        morning_afternoon_window,
+        rolling_window_dates,
+        weekly_morning_afternoon_outcomes,
+    )
+    from evaluation.agent import evidence as evidence_mod
+
+    _seed_change_sessions(db, make_task, make_daily_task)
+    from_date = date(2026, 1, 12)
+    to_date = date(2026, 4, 24)
+    calls: list[str] = []
+
+    def wrap(name, fn):
+        def inner(*args, **kwargs):
+            calls.append(name)
+            return fn(*args, **kwargs)
+
+        return inner
+
+    monkeypatch.setattr(
+        evidence_mod,
+        "morning_afternoon_window",
+        wrap("window", evidence_mod.morning_afternoon_window),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "weekly_morning_afternoon_outcomes",
+        wrap("weeks", evidence_mod.weekly_morning_afternoon_outcomes),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "compare_morning_afternoon_windows",
+        wrap("compare", evidence_mod.compare_morning_afternoon_windows),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "rolling_window_dates",
+        wrap("rolling", evidence_mod.rolling_window_dates),
+    )
+    evidence = build_change_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_e",
+    )
+    assert calls.count("rolling") == 3
+    assert calls.count("window") == 4
+    assert "compare" in calls
+    assert "weeks" in calls
+    recent8_from, recent8_to = rolling_window_dates(to_date, weeks=8)
+    recent16_from, recent16_to = rolling_window_dates(
+        to_date,
+        weeks=16,
+    )
+    preceding16_from, preceding16_to = rolling_window_dates(
+        recent16_from - timedelta(days=1),
+        weeks=16,
+    )
+    production_full = morning_afternoon_window(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    production_8 = morning_afternoon_window(
+        db,
+        from_date=recent8_from,
+        to_date=recent8_to,
+    )
+    production_16 = morning_afternoon_window(
+        db,
+        from_date=recent16_from,
+        to_date=recent16_to,
+    )
+    production_prec = morning_afternoon_window(
+        db,
+        from_date=preceding16_from,
+        to_date=preceding16_to,
+    )
+    compared = compare_morning_afternoon_windows(
+        db,
+        current_from_date=recent16_from,
+        current_to_date=recent16_to,
+        baseline_from_date=preceding16_from,
+        baseline_to_date=preceding16_to,
+    )
+    weeks = weekly_morning_afternoon_outcomes(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    assert evidence["case_id"] == "case_e"
+    assert set(evidence) == {
+        "case_id",
+        "period",
+        "full_period",
+        "recent_windows",
+        "preceding_windows",
+        "window_comparisons",
+        "weekly_morning_afternoon",
+    }
+    full = evidence["full_period"]
+    assert full["id"] == "window:full"
+    assert full["from"] == production_full.from_date.isoformat()
+    assert full["to"] == production_full.to_date.isoformat()
+    assert full["morning_n"] == production_full.morning_session_count
+    assert full["morning_positive_rate"] == (
+        production_full.morning_positive_rate
+    )
+    assert full["afternoon_n"] == (
+        production_full.afternoon_session_count
+    )
+    assert full["afternoon_positive_rate"] == (
+        production_full.afternoon_positive_rate
+    )
+    assert full["positive_rate_gap"] == (
+        production_full.positive_rate_gap
+    )
+    by_id = {
+        row["id"]: row
+        for row in (
+            *evidence["recent_windows"],
+            *evidence["preceding_windows"],
+        )
+    }
+    assert by_id["window:recent-8w"]["from"] == recent8_from.isoformat()
+    assert by_id["window:recent-8w"]["to"] == recent8_to.isoformat()
+    assert by_id["window:recent-8w"]["morning_n"] == (
+        production_8.morning_session_count
+    )
+    assert by_id["window:recent-8w"]["positive_rate_gap"] == (
+        production_8.positive_rate_gap
+    )
+    assert by_id["window:recent-16w"]["from"] == (
+        recent16_from.isoformat()
+    )
+    assert by_id["window:recent-16w"]["morning_n"] == (
+        production_16.morning_session_count
+    )
+    assert by_id["window:preceding-16w"]["from"] == (
+        preceding16_from.isoformat()
+    )
+    assert by_id["window:preceding-16w"]["to"] == (
+        preceding16_to.isoformat()
+    )
+    assert by_id["window:preceding-16w"]["positive_rate_gap"] == (
+        production_prec.positive_rate_gap
+    )
+    comparison = evidence["window_comparisons"][0]
+    assert comparison["id"] == "comparison:recent16-vs-preceding16"
+    assert comparison["current_id"] == "window:recent-16w"
+    assert comparison["baseline_id"] == "window:preceding-16w"
+    assert comparison["gap_change"] == compared.gap_change
+    assert comparison["morning_rate_change"] == (
+        compared.morning_rate_change
+    )
+    assert comparison["afternoon_rate_change"] == (
+        compared.afternoon_rate_change
+    )
+    assert [
+        row["week_start"] for row in evidence["weekly_morning_afternoon"]
+    ] == [group.week_start_date.isoformat() for group in weeks.groups]
+    for row, group in zip(
+        evidence["weekly_morning_afternoon"],
+        weeks.groups,
+    ):
+        assert row["id"] == f"week:{row['week_start']}"
+        assert row["morning_n"] == group.morning_session_count
+        assert row["morning_positive_rate"] == group.morning_positive_rate
+        assert row["afternoon_n"] == group.afternoon_session_count
+        assert row["afternoon_positive_rate"] == (
+            group.afternoon_positive_rate
+        )
+        assert row["positive_rate_gap"] == group.positive_rate_gap
+        assert "decoy" not in row
+        assert "phase" not in row
+        assert "regime" not in row
+        assert "trend" not in row
+    blob = serialize_evidence(evidence)
+    for token in (
+        "historical_phase",
+        "transition_phase",
+        "recent_phase",
+        "decoy",
+        "change_point",
+        "behaviour_change",
+    ):
+        assert token not in blob
+    source = inspect.getsource(build_change_evidence)
+    assert "morning_afternoon_window" in source
+    assert "weekly_morning_afternoon_outcomes" in source
+    assert "compare_morning_afternoon_windows" in source
+    assert "rolling_window_dates" in source
+    dispatched = build_evidence(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+        case_id="case_e",
+        version="change-v1",
+    )
+    assert dispatched == evidence
+    known = evidence_ids(evidence)
+    assert "window:full" in known
+    assert "window:recent-8w" in known
+    assert "window:recent-16w" in known
+    assert "window:preceding-16w" in known
+    assert "comparison:recent16-vs-preceding16" in known
+    assert f"week:{weeks.groups[0].week_start_date.isoformat()}" in known
+    _assert_no_model_input_leak(blob)
+    with pytest.raises(ValueError, match="opaque"):
+        build_change_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="behaviour_change",
+        )
+    with pytest.raises(ValueError, match="opaque"):
+        build_temporal_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id="case_e",
+        )
+
+
+def test_run_case_change_dry_run_does_not_call_model(
+    db,
+    make_task,
+    make_daily_task,
+    monkeypatch,
+):
+    _seed_change_sessions(db, make_task, make_daily_task)
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("live model must not be called")
+
+    monkeypatch.setattr(
+        "evaluation.agent.model.urllib.request.urlopen",
+        fail_urlopen,
+    )
+    with pytest.raises(ValueError, match="not compatible"):
+        run_case(
+            db,
+            case_id="case_e",
+            from_date=date(2026, 1, 12),
+            to_date=date(2026, 4, 24),
+            dry_run=True,
+            model=None,
+            prompt_version="temporal-v1",
+        )
+    record = run_case(
+        db,
+        case_id="case_e",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 4, 24),
+        dry_run=True,
+        model=None,
+        prompt_version="change-v1",
+    )
+    assert record["parse_status"] == "dry_run"
+    assert record["raw_response"] is None
+    assert record["case_id"] == "case_e"
+    assert record["prompt_version"] == "change-v1"
+    assert "ground_truth" not in record
+    persisted = json.dumps(record["prompt"]) + json.dumps(
+        record["evidence"]
+    )
+    assert "behaviour_change" not in persisted
+    assert "decoy" not in persisted.lower()
     _assert_no_model_input_leak(persisted)
 
 

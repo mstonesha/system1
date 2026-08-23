@@ -6,6 +6,10 @@ aggregate still looks like a morning advantage.
 
 This module must not read evaluation/ground_truth/. Ground truth is
 for human/test verification only and must not be supplied to an agent.
+
+Phase labels, decoy-week identity, and confound neutrality are
+generator truth. Whether an agent can recover those facts depends
+on the evidence contract, not on the generator.
 """
 
 from __future__ import annotations

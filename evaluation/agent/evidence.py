@@ -11,18 +11,21 @@ dependencies-v1 uses interruption outcomes and the bounded stuck
 task drilldown. task-age-v1 uses execution-age abandonment
 buckets and datable terminal-task rows. planning-v1 uses daily
 planning capacity, completed-task effort estimates, and weekly
-planned-session rows.
+planned-session rows. change-v1 uses full-period, rolling recent,
+preceding, and weekly morning/afternoon windows.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.analytics.change import (
+    compare_morning_afternoon_windows,
     morning_afternoon_window,
+    rolling_window_dates,
     weekly_morning_afternoon_outcomes,
 )
 from app.analytics.drilldown import (
@@ -51,11 +54,13 @@ ALLOWED_TEMPORAL_CASE_IDS = frozenset({"case_a", "case_f"})
 ALLOWED_DEPENDENCY_CASE_IDS = frozenset({"case_b"})
 ALLOWED_TASK_AGE_CASE_IDS = frozenset({"case_c"})
 ALLOWED_PLANNING_CASE_IDS = frozenset({"case_d"})
+ALLOWED_CHANGE_CASE_IDS = frozenset({"case_e"})
 ALLOWED_CASE_IDS = (
     ALLOWED_TEMPORAL_CASE_IDS
     | ALLOWED_DEPENDENCY_CASE_IDS
     | ALLOWED_TASK_AGE_CASE_IDS
     | ALLOWED_PLANNING_CASE_IDS
+    | ALLOWED_CHANGE_CASE_IDS
 )
 EVIDENCE_CONTRACTS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
@@ -63,6 +68,7 @@ EVIDENCE_CONTRACTS = frozenset(
 DEPENDENCY_CONTRACTS = frozenset({"dependencies-v1"})
 TASK_AGE_CONTRACTS = frozenset({"task-age-v1"})
 PLANNING_CONTRACTS = frozenset({"planning-v1"})
+CHANGE_CONTRACTS = frozenset({"change-v1"})
 DEFAULT_EVIDENCE_CONTRACT = "temporal-v1"
 WEEKLY_EVIDENCE_VERSIONS = frozenset(
     {"temporal-v2", "temporal-v3"}
@@ -434,6 +440,112 @@ def build_planning_evidence(
     }
 
 
+def build_change_evidence(
+    db: Session,
+    *,
+    from_date: date,
+    to_date: date,
+    case_id: str,
+    version: str = "change-v1",
+) -> dict:
+    """Assemble morning/afternoon change windows and weekly series.
+
+    Window bounds come from production rolling_window_dates.
+    Does not attach generator period labels.
+    """
+    if case_id not in ALLOWED_CHANGE_CASE_IDS:
+        raise ValueError(
+            "case_id must be an opaque evaluation identifier "
+            f"(case_e); got {case_id!r}."
+        )
+    if version not in CHANGE_CONTRACTS:
+        raise ValueError(
+            "Unknown evidence contract "
+            f"{version!r}. Expected one of "
+            + ", ".join(sorted(CHANGE_CONTRACTS))
+        )
+    full = morning_afternoon_window(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    recent8_from, recent8_to = rolling_window_dates(
+        to_date,
+        weeks=8,
+    )
+    recent16_from, recent16_to = rolling_window_dates(
+        to_date,
+        weeks=16,
+    )
+    preceding16_from, preceding16_to = rolling_window_dates(
+        recent16_from - timedelta(days=1),
+        weeks=16,
+    )
+    recent8 = morning_afternoon_window(
+        db,
+        from_date=recent8_from,
+        to_date=recent8_to,
+    )
+    recent16 = morning_afternoon_window(
+        db,
+        from_date=recent16_from,
+        to_date=recent16_to,
+    )
+    preceding16 = morning_afternoon_window(
+        db,
+        from_date=preceding16_from,
+        to_date=preceding16_to,
+    )
+    compared = compare_morning_afternoon_windows(
+        db,
+        current_from_date=recent16_from,
+        current_to_date=recent16_to,
+        baseline_from_date=preceding16_from,
+        baseline_to_date=preceding16_to,
+    )
+    weeks = weekly_morning_afternoon_outcomes(
+        db,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    return {
+        "case_id": case_id,
+        "period": {
+            "from": full.from_date.isoformat(),
+            "to": full.to_date.isoformat(),
+            "timezone": full.timezone,
+        },
+        "full_period": _change_window_row(full, "window:full"),
+        "recent_windows": [
+            _change_window_row(recent8, "window:recent-8w"),
+            _change_window_row(recent16, "window:recent-16w"),
+        ],
+        "preceding_windows": [
+            _change_window_row(
+                preceding16,
+                "window:preceding-16w",
+            )
+        ],
+        "window_comparisons": [
+            {
+                "id": "comparison:recent16-vs-preceding16",
+                "current_id": "window:recent-16w",
+                "baseline_id": "window:preceding-16w",
+                "morning_rate_change": (
+                    compared.morning_rate_change
+                ),
+                "afternoon_rate_change": (
+                    compared.afternoon_rate_change
+                ),
+                "gap_change": compared.gap_change,
+            }
+        ],
+        "weekly_morning_afternoon": [
+            _weekly_row(group) for group in weeks.groups
+        ],
+    }
+
+
 def build_evidence(
     db: Session,
     *,
@@ -469,6 +581,14 @@ def build_evidence(
         )
     if version in PLANNING_CONTRACTS:
         return build_planning_evidence(
+            db,
+            from_date=from_date,
+            to_date=to_date,
+            case_id=case_id,
+            version=version,
+        )
+    if version in CHANGE_CONTRACTS:
+        return build_change_evidence(
             db,
             from_date=from_date,
             to_date=to_date,
@@ -522,12 +642,34 @@ def evidence_ids(package: dict) -> set[str]:
         ids.add(effort["id"])
     for row in package.get("weekly_workload", ()):
         ids.add(row["id"])
+    full = package.get("full_period") or {}
+    if "id" in full:
+        ids.add(full["id"])
+    for row in package.get("recent_windows", ()):
+        ids.add(row["id"])
+    for row in package.get("preceding_windows", ()):
+        ids.add(row["id"])
+    for row in package.get("window_comparisons", ()):
+        ids.add(row["id"])
     return ids
 
 
 def serialize_evidence(package: dict) -> str:
     """Compact deterministic JSON for the model prompt."""
     return _dumps(package)
+
+
+def _change_window_row(window, window_id: str) -> dict:
+    return {
+        "id": window_id,
+        "from": window.from_date.isoformat(),
+        "to": window.to_date.isoformat(),
+        "morning_n": window.morning_session_count,
+        "morning_positive_rate": window.morning_positive_rate,
+        "afternoon_n": window.afternoon_session_count,
+        "afternoon_positive_rate": window.afternoon_positive_rate,
+        "positive_rate_gap": window.positive_rate_gap,
+    }
 
 
 def _planning_week_row(group) -> dict:

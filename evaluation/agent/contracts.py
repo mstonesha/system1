@@ -13,6 +13,7 @@ SCENARIO_CASE_IDS = {
     "interruptions_dependencies": "case_b",
     "task_age_abandonment": "case_c",
     "planning_workload": "case_d",
+    "behaviour_change": "case_e",
 }
 TEMPORAL_VERSIONS = frozenset(
     {"temporal-v1", "temporal-v2", "temporal-v3"}
@@ -20,12 +21,14 @@ TEMPORAL_VERSIONS = frozenset(
 DEPENDENCY_VERSIONS = frozenset({"dependencies-v1"})
 TASK_AGE_VERSIONS = frozenset({"task-age-v1"})
 PLANNING_VERSIONS = frozenset({"planning-v1"})
+CHANGE_VERSIONS = frozenset({"change-v1"})
 CASE_CONTRACTS = {
     "case_a": TEMPORAL_VERSIONS,
     "case_f": TEMPORAL_VERSIONS,
     "case_b": DEPENDENCY_VERSIONS,
     "case_c": TASK_AGE_VERSIONS,
     "case_d": PLANNING_VERSIONS,
+    "case_e": CHANGE_VERSIONS,
 }
 
 

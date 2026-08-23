@@ -1,4 +1,4 @@
-"""CLI for agent evaluation (Datasets A, B, C, D, and F).
+"""CLI for agent evaluation (Datasets A, B, C, D, E, and F).
 
 Usage:
 
@@ -11,16 +11,19 @@ Usage:
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1 --dry-run
     python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1 --dry-run
     python -m evaluation.agent.runner --scenario planning_workload --prompt-version planning-v1 --dry-run
+    python -m evaluation.agent.runner --scenario behaviour_change --prompt-version change-v1 --dry-run
     python -m evaluation.agent.runner --scenario temporal_patterns
     python -m evaluation.agent.runner --scenario noise_control
     python -m evaluation.agent.runner --scenario interruptions_dependencies --prompt-version dependencies-v1
     python -m evaluation.agent.runner --scenario task_age_abandonment --prompt-version task-age-v1
     python -m evaluation.agent.runner --scenario planning_workload --prompt-version planning-v1
+    python -m evaluation.agent.runner --scenario behaviour_change --prompt-version change-v1
 
 Scenario and prompt-version must be compatible. Temporal scenarios
 use temporal-v1/v2/v3. interruptions_dependencies uses
 dependencies-v1. task_age_abandonment uses task-age-v1.
-planning_workload uses planning-v1.
+planning_workload uses planning-v1. behaviour_change uses
+change-v1.
 
 Live runs require EVAL_AGENT_API_KEY, EVAL_AGENT_BASE_URL, and
 EVAL_AGENT_MODEL. Dry-run generates the scenario, builds evidence,
@@ -79,8 +82,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Pair temporal_patterns or noise_control with "
             "temporal-v1/v2/v3, interruptions_dependencies "
             "with dependencies-v1, task_age_abandonment "
-            "with task-age-v1, and planning_workload "
-            "with planning-v1."
+            "with task-age-v1, planning_workload "
+            "with planning-v1, and behaviour_change "
+            "with change-v1."
         )
     )
     parser.add_argument(
@@ -109,7 +113,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "buckets and datable terminal-task rows. "
             "planning-v1 uses daily planning capacity, "
             "completed-task effort estimates, and weekly "
-            "planned-session rows."
+            "planned-session rows. change-v1 uses full-period, "
+            "rolling recent, preceding, and weekly "
+            "morning/afternoon windows."
         ),
     )
     parser.add_argument(
@@ -307,7 +313,9 @@ def _print_review(
             "total_terminal_tasks: "
             f"{period['total_terminal_tasks']}"
         )
-    if "daily_planning" in evidence:
+    if "full_period" in evidence:
+        _print_change_review(evidence)
+    elif "daily_planning" in evidence:
         _print_planning_review(evidence)
     elif "execution_age_abandonment" in evidence:
         _print_task_age_review(evidence)
@@ -361,6 +369,42 @@ def _print_review(
             "(not sent to the model) ---"
         )
         print(ground_truth_text.rstrip())
+
+
+def _print_change_review(evidence: dict) -> None:
+    def _window_line(title: str, row: dict) -> None:
+        print(
+            f"{title}: {row['from']} to {row['to']} "
+            f"morning_n={row['morning_n']} "
+            f"morning_rate={row['morning_positive_rate']} "
+            f"afternoon_n={row['afternoon_n']} "
+            f"afternoon_rate={row['afternoon_positive_rate']} "
+            f"gap={row['positive_rate_gap']}"
+        )
+
+    _window_line("full_period", evidence["full_period"])
+    for row in evidence["recent_windows"]:
+        _window_line(row["id"], row)
+    for row in evidence["preceding_windows"]:
+        _window_line(row["id"], row)
+    for row in evidence["window_comparisons"]:
+        print(
+            f"{row['id']}: "
+            f"morning_rate_change={row['morning_rate_change']} "
+            f"afternoon_rate_change={row['afternoon_rate_change']} "
+            f"gap_change={row['gap_change']}"
+        )
+    weeks = evidence["weekly_morning_afternoon"]
+    print(f"weekly_morning_afternoon: {len(weeks)}")
+    for row in weeks:
+        print(
+            f"  {row['week_start']} "
+            f"morning_n={row['morning_n']} "
+            f"morning_rate={row['morning_positive_rate']} "
+            f"afternoon_n={row['afternoon_n']} "
+            f"afternoon_rate={row['afternoon_positive_rate']} "
+            f"gap={row['positive_rate_gap']}"
+        )
 
 
 def _print_planning_review(evidence: dict) -> None:

@@ -9,10 +9,12 @@ date_range:
   weekends_excluded: true
 
 purpose: >
-  Test whether an analyst can see that a historically strong morning
-  advantage has weakened and is no longer a good description of
-  recent behaviour, even though the lifetime aggregate still favours
-  mornings.
+  Test whether an analyst given full-period, rolling recent,
+  preceding, and weekly morning/afternoon windows can see that a
+  historically strong morning advantage has weakened and is no
+  longer a good description of recent behaviour, even though the
+  lifetime aggregate still favours mornings, without recovering
+  hidden generator phase or decoy labels.
 
 phases:
   historical: [1, 22]
@@ -46,12 +48,27 @@ notes:
     schema or an agent-facing field.
   - Morning is 09:00-11:59; afternoon is 12:00-17:59.
   - One recent week is a noisy echo of the old pattern on purpose.
+  - Generator truth may be richer than agent-evaluable truth.
+  - >
+      The agent must only be judged against claims supported by the
+      change-v1 evidence contract. That contract exposes full-period,
+      rolling recent, preceding, and weekly morning/afternoon
+      windows. It does not expose historical/transition/recent
+      phase labels or decoy-week identities.
 
-expected_patterns:
+agent_evidence_contract: change-v1
+
+# Planted in the synthetic generator. Useful for validating scenario
+# construction. Not all of these are recoverable as labelled facts
+# from change-v1.
+generator_truth:
   - historical_morning_advantage_is_strong
   - morning_advantage_narrows_over_time
   - recent_morning_advantage_is_absent_or_small
   - lifetime_average_overstates_current_morning_advantage
+  - transition_period_collapses_the_morning_advantage
+  - deliberately_misleading_short_run_echo_exists
+  - no_intended_confound_explaining_the_change
 
 expected_non_patterns:
   - no_meaningful_weekday_effect
@@ -60,16 +77,54 @@ expected_non_patterns:
   - no_task_age_abandonment_gradient
   - no_workload_regime_explaining_the_change
 
+# True in the generator but not scored against the agent, because
+# change-v1 does not expose phase labels or decoy identities.
+not_agent_evaluable:
+  - generator_phase_labels
+  - exact_planted_transition_week
+  - hidden_decoy_week_identities
+  - confound_neutrality_mechanisms
+  - synthetic_scheduling_logic
+
+agent_expected_patterns:
+  - full_period_still_shows_a_morning_advantage
+  - full_period_relationship_is_not_representative_of_recent_behaviour
+  - recent_windows_show_little_or_no_meaningful_morning_advantage
+  - preceding_comparable_window_had_a_much_larger_morning_advantage
+  - morning_afternoon_gap_has_materially_weakened
+  - evidence_supports_change_not_necessarily_a_stable_reversal
+
+agent_expected_hypotheses:
+  - changed_work_mix_may_explain_the_shift
+  - changed_schedule_or_environment_may_explain_the_shift
+  - adaptation_or_fatigue_may_explain_the_shift
+
+agent_expected_insufficient_evidence:
+  - afternoon_is_not_shown_to_be_definitively_better
+  - recent_near_zero_relationship_is_not_shown_to_persist_indefinitely
+  - one_recent_strong_week_does_not_establish_a_new_morning_advantage
+  - old_lifetime_pattern_should_not_be_used_as_a_current_rule
+  - evidence_does_not_establish_why_the_change_occurred
+  - no_precise_change_point_date_is_supplied
+
 agent_should_be_able_to_say:
-  - mornings were historically associated with better outcomes
-  - that advantage has weakened substantially
-  - recent weeks no longer support a strong morning recommendation
-  - lifetime averages are stale for describing current behaviour
-  - the change appears gradual rather than being one anomalous week
+  - the full-period data still shows a morning advantage
+  - that historical/full-period relationship is not representative of the most recent behaviour
+  - recent 8- and 16-week windows show little or no meaningful morning advantage
+  - the preceding comparable window had a much larger morning advantage
+  - the morning/afternoon gap has therefore materially weakened
+  - the evidence supports a change in relationship, not necessarily a stable reversal
+  - short weekly reversals or echoes should not be treated as new persistent regimes
+  - the evidence does not establish why the change occurred
 
 agent_should_not_claim:
   - afternoons definitely cause better performance now
+  - afternoon is now definitively better
   - the historical morning pattern never existed
+  - the recent near-zero relationship will persist indefinitely
+  - one recent strong week establishes a new morning advantage
+  - the old lifetime pattern should still be used as a current rule
   - the recent change is caused by interruptions, workload, category, or weekday
-  - one recent week proves a permanent behavioural shift
+  - any specific cause of the behavioural change
+  - a precise change-point date
   - lifetime data should simply be discarded
