@@ -106,6 +106,9 @@ services:
       FOCUS_SESSION_MINUTES: "25"
       BREAK_DURATION_MINUTES: "5"
       LOG_LEVEL: INFO
+      EVAL_AGENT_API_KEY: ${EVAL_AGENT_API_KEY:-}
+      EVAL_AGENT_BASE_URL: ${EVAL_AGENT_BASE_URL:-}
+      EVAL_AGENT_MODEL: ${EVAL_AGENT_MODEL:-}
     depends_on:
       db-eval:
         condition: service_healthy

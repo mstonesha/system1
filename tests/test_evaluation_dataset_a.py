@@ -684,3 +684,62 @@ def test_analytics_reveals_monday_morning_exception(
     assert monday_morning.positive_rate < 0.55
     assert tue_fri_rate > 0.65
     assert tue_fri_rate - late_afternoon.positive_rate >= 0.12
+
+
+def test_agent_temporal_evidence_hides_scenario_and_ground_truth(
+    generated_eval,
+    eval_db,
+):
+    from evaluation.agent.evidence import (
+        build_temporal_evidence,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+
+    result = generated_eval["result"]
+    weekdays, dayparts, cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    evidence = build_temporal_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_a",
+    )
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(evidence).combined_text()
+    monday_morning = next(
+        row
+        for row in evidence["weekday_daypart_outcomes"]
+        if row["id"] == "weekday_daypart:monday:morning"
+    )
+    production_monday_morning = next(
+        group
+        for group in cells.groups
+        if group.weekday == "Monday" and group.daypart == "morning"
+    )
+    assert evidence["case_id"] == "case_a"
+    assert evidence["period"]["total_sessions"] == (
+        weekdays.total_sessions
+    )
+    assert monday_morning["n"] == (
+        production_monday_morning.session_count
+    )
+    assert monday_morning["positive_rate"] == (
+        production_monday_morning.positive_rate
+    )
+    assert monday_morning["n"] > 0
+    for token in (
+        "temporal_patterns",
+        "noise_control",
+        "expected_patterns",
+        "monday_morning_is_a_strong_negative_exception",
+        "ground_truth",
+    ):
+        assert token not in blob
+        assert token not in prompt
+    assert "interruption" not in evidence
+    assert len(evidence["weekday_outcomes"]) == len(weekdays.groups)
+    assert len(evidence["daypart_outcomes"]) == len(dayparts.groups)
+

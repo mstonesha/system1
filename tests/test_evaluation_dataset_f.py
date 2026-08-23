@@ -725,3 +725,73 @@ def test_analytics_dataset_f_stuck_drilldown_is_observational(
     assert "hr_related" not in sample.__dataclass_fields__
     assert "cluster" not in sample.tasks[0].__dataclass_fields__
     assert "description" not in sample.tasks[0].__dataclass_fields__
+
+
+def test_agent_temporal_evidence_keeps_small_n_and_hides_scenario(
+    generated_eval,
+    eval_db,
+):
+    from evaluation.agent.evidence import (
+        build_temporal_evidence,
+        serialize_evidence,
+    )
+    from evaluation.agent.prompt import render_prompt
+
+    result = generated_eval["result"]
+    _weekdays, dayparts, cells = _analytics_period(
+        generated_eval,
+        eval_db,
+    )
+    evidence = build_temporal_evidence(
+        eval_db,
+        from_date=result.start_date,
+        to_date=result.end_date,
+        case_id="case_f",
+    )
+    blob = serialize_evidence(evidence)
+    prompt = render_prompt(evidence).combined_text()
+    evening = next(
+        row
+        for row in evidence["daypart_outcomes"]
+        if row["daypart"] == "evening"
+    )
+    production_evening = next(
+        group
+        for group in dayparts.groups
+        if group.daypart == "evening"
+    )
+    monday_early = next(
+        row
+        for row in evidence["weekday_daypart_outcomes"]
+        if row["id"]
+        == "weekday_daypart:monday:early_morning"
+    )
+    production_monday_early = next(
+        group
+        for group in cells.groups
+        if group.weekday == "Monday"
+        and group.daypart == "early_morning"
+    )
+    assert evidence["case_id"] == "case_f"
+    assert evening["n"] == production_evening.session_count
+    assert evening["n"] < next(
+        row["n"]
+        for row in evidence["daypart_outcomes"]
+        if row["daypart"] == "morning"
+    )
+    assert monday_early["n"] == (
+        production_monday_early.session_count
+    )
+    assert monday_early["n"] > 0
+    assert monday_early["n"] < 30
+    for token in (
+        "noise_control",
+        "temporal_patterns",
+        "no_robust_behavioural_pattern",
+        "expected_patterns",
+        "ground_truth",
+    ):
+        assert token not in blob
+        assert token not in prompt
+    assert "interruption" not in evidence
+

@@ -1,0 +1,515 @@
+import ast
+import inspect
+import json
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from app.models import WorkSession
+from app.time import UTC
+from evaluation.agent.evidence import (
+    build_temporal_evidence,
+    evidence_ids,
+    serialize_evidence,
+)
+from evaluation.agent.model import (
+    API_KEY_ENV,
+    BASE_URL_ENV,
+    MODEL_ENV,
+    StubAnalysisModel,
+    load_configured_model,
+)
+from evaluation.agent.prompt import PROMPT_VERSION, render_prompt
+from evaluation.agent.runner import run_case
+from evaluation.agent.store import persist_run
+from evaluation.agent.types import parse_agent_analysis
+
+
+LONDON = ZoneInfo("Europe/London")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = REPO_ROOT / "app"
+AGENT_DIR = REPO_ROOT / "evaluation" / "agent"
+FORBIDDEN_IN_MODEL_INPUT = (
+    "temporal_patterns",
+    "noise_control",
+    "dataset a",
+    "dataset f",
+    "ground_truth",
+    "expected_patterns",
+    "expected_non_patterns",
+    "agent_should",
+    "monday_morning_is_a_strong_negative_exception",
+    "no_robust_behavioural_pattern",
+)
+VALID_ANALYSIS = {
+    "observations": [
+        {
+            "statement": "Friday has the highest weekday rate.",
+            "evidence_refs": ["weekday:friday"],
+        }
+    ],
+    "patterns": [
+        {
+            "statement": "No robust weekday pattern is supported.",
+            "evidence_refs": [
+                "weekday:monday",
+                "weekday:friday",
+            ],
+        }
+    ],
+    "hypotheses": [],
+    "insufficient_evidence": [
+        {
+            "statement": "Evening n is too small to rank as best.",
+            "evidence_refs": ["daypart:evening"],
+        }
+    ],
+    "suggested_drilldowns": [],
+}
+
+
+def _local(year, month, day, hour, minute=0):
+    return datetime(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        tzinfo=LONDON,
+    )
+
+
+def _add_completed(
+    db,
+    make_task,
+    make_daily_task,
+    local_started,
+    outcome="progress",
+):
+    task = make_task()
+    daily_task = make_daily_task(
+        task,
+        target_date=local_started.date(),
+    )
+    started_at = local_started.astimezone(UTC)
+    work_session = WorkSession(
+        daily_task_id=daily_task.id,
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=25),
+        planned_duration_seconds=1500,
+        actual_duration_seconds=1500,
+        session_state="completed",
+        outcome=outcome,
+    )
+    db.add(work_session)
+    db.commit()
+    db.refresh(work_session)
+    return work_session
+
+
+def _seed_temporal_sessions(db, make_task, make_daily_task):
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 18, 30),
+        outcome="complete",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 12, 7, 0),
+        outcome="progress",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 10, 0),
+        outcome="progress",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 13, 13, 0),
+        outcome="stuck",
+    )
+    _add_completed(
+        db,
+        make_task,
+        make_daily_task,
+        _local(2026, 1, 16, 10, 0),
+        outcome="complete",
+    )
+
+
+def _assert_no_model_input_leak(text: str) -> None:
+    lowered = text.lower()
+    for token in FORBIDDEN_IN_MODEL_INPUT:
+        assert token.lower() not in lowered, token
+
+
+def test_application_code_does_not_import_evaluation():
+    for path in APP_DIR.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith(
+                        "evaluation"
+                    ), path
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert not module.startswith(
+                    "evaluation"
+                ), path
+
+
+def test_evidence_module_uses_production_analytics():
+    text = (AGENT_DIR / "evidence.py").read_text(encoding="utf-8")
+    source = inspect.getsource(build_temporal_evidence)
+    assert "from app.analytics.outcomes import" in text
+    assert "from app.analytics.change import" in text
+    assert "session_outcomes_by_weekday" in source
+    assert "session_outcomes_by_daypart" in source
+    assert "session_outcomes_by_weekday_daypart" in source
+    assert "morning_afternoon_window" in source
+    assert "evaluation.observe" not in text
+    assert "yaml.safe_load" not in text
+    assert "ground_truth" not in text
+    assert "temporal_patterns" not in text
+    assert "noise_control" not in text
+
+
+def test_prompt_and_run_case_do_not_load_ground_truth():
+    prompt_text = (AGENT_DIR / "prompt.py").read_text(
+        encoding="utf-8"
+    )
+    run_source = inspect.getsource(run_case)
+    assert "yaml.safe_load" not in prompt_text
+    assert "ground_truth" not in prompt_text
+    assert "temporal_patterns" not in prompt_text
+    assert "noise_control" not in prompt_text
+    assert "ground_truth" not in run_source
+    assert "yaml" not in run_source
+
+
+def test_evidence_builder_is_deterministic_and_keeps_small_n(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    kwargs = dict(
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_a",
+    )
+    first = build_temporal_evidence(db, **kwargs)
+    second = build_temporal_evidence(db, **kwargs)
+    assert serialize_evidence(first) == serialize_evidence(second)
+    assert first["case_id"] == "case_a"
+    assert first["period"]["total_sessions"] == 5
+    assert first["period"]["timezone"] == "Europe/London"
+    monday = next(
+        row
+        for row in first["weekday_outcomes"]
+        if row["weekday"] == "Monday"
+    )
+    assert monday["n"] == 2
+    assert monday["id"] == "weekday:monday"
+    assert monday["complete"] == 1
+    assert monday["progress"] == 1
+    evening = next(
+        row
+        for row in first["daypart_outcomes"]
+        if row["daypart"] == "evening"
+    )
+    assert evening["n"] == 1
+    assert evening["positive_rate"] == 1.0
+    monday_evening = next(
+        row
+        for row in first["weekday_daypart_outcomes"]
+        if row["id"] == "weekday_daypart:monday:evening"
+    )
+    assert monday_evening["n"] == 1
+    window = first["morning_afternoon"]
+    assert window["morning"]["n"] == 2
+    assert window["afternoon"]["n"] == 1
+    blob = serialize_evidence(first)
+    _assert_no_model_input_leak(blob)
+    assert "interruption" not in first
+    assert "stuck_task" not in blob
+    assert "planned_sessions" not in blob
+    assert set(first) == {
+        "case_id",
+        "period",
+        "weekday_outcomes",
+        "daypart_outcomes",
+        "weekday_daypart_outcomes",
+        "morning_afternoon",
+    }
+
+
+def test_evidence_builder_rejects_semantic_case_id(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    with pytest.raises(ValueError, match="opaque"):
+        build_temporal_evidence(
+            db,
+            from_date=date(2026, 1, 12),
+            to_date=date(2026, 1, 16),
+            case_id="temporal_patterns",
+        )
+
+
+def test_evidence_builder_calls_production_analytics(
+    db,
+    make_task,
+    make_daily_task,
+    monkeypatch,
+):
+    from evaluation.agent import evidence as evidence_mod
+
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    calls: list[str] = []
+
+    def wrap(name, fn):
+        def inner(*args, **kwargs):
+            calls.append(name)
+            return fn(*args, **kwargs)
+
+        return inner
+
+    monkeypatch.setattr(
+        evidence_mod,
+        "session_outcomes_by_weekday",
+        wrap(
+            "weekday",
+            evidence_mod.session_outcomes_by_weekday,
+        ),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "session_outcomes_by_daypart",
+        wrap(
+            "daypart",
+            evidence_mod.session_outcomes_by_daypart,
+        ),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "session_outcomes_by_weekday_daypart",
+        wrap(
+            "cells",
+            evidence_mod.session_outcomes_by_weekday_daypart,
+        ),
+    )
+    monkeypatch.setattr(
+        evidence_mod,
+        "morning_afternoon_window",
+        wrap(
+            "window",
+            evidence_mod.morning_afternoon_window,
+        ),
+    )
+    build_temporal_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_f",
+    )
+    assert calls == ["weekday", "daypart", "cells", "window"]
+
+
+def test_prompt_includes_evidence_and_caution_rules(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    evidence = build_temporal_evidence(
+        db,
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        case_id="case_a",
+    )
+    prompt = render_prompt(evidence)
+    combined = prompt.combined_text()
+    assert prompt.version == PROMPT_VERSION
+    assert serialize_evidence(evidence) in prompt.user
+    assert "observations" in prompt.system
+    assert "patterns" in prompt.system
+    assert "hypotheses" in prompt.system
+    assert "insufficient_evidence" in prompt.system
+    assert "sample size" in prompt.system.lower()
+    assert "no robust pattern" in prompt.system.lower()
+    assert "best" in prompt.system.lower()
+    _assert_no_model_input_leak(combined)
+
+
+def test_valid_response_parses_and_unknown_refs_are_listed():
+    parsed = parse_agent_analysis(
+        json.dumps(VALID_ANALYSIS),
+        known_ids={"weekday:friday", "daypart:evening"},
+    )
+    assert parsed.ok
+    assert parsed.analysis is not None
+    assert parsed.analysis.observations[0].statement.startswith(
+        "Friday"
+    )
+    assert parsed.unknown_evidence_refs == ("weekday:monday",)
+
+
+def test_missing_required_field_fails_validation():
+    payload = dict(VALID_ANALYSIS)
+    del payload["patterns"]
+    parsed = parse_agent_analysis(json.dumps(payload))
+    assert parsed.status == "invalid_schema"
+    assert parsed.analysis is None
+    assert any("patterns" in error for error in parsed.errors)
+
+
+def test_malformed_json_is_not_silently_repaired():
+    raw = (
+        "```json\n"
+        + json.dumps(VALID_ANALYSIS)
+        + "\n```"
+    )
+    parsed = parse_agent_analysis(raw)
+    assert parsed.status == "invalid_json"
+    assert parsed.analysis is None
+    assert parsed.raw_text == raw
+
+
+def test_trailing_comma_is_not_silently_repaired():
+    raw = '{"observations": [], "patterns": [],}'
+    parsed = parse_agent_analysis(raw)
+    assert parsed.status == "invalid_json"
+    assert parsed.analysis is None
+
+
+def test_persist_writes_gitignored_dir_without_secrets(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv(API_KEY_ENV, "sk-test-secret-value")
+    record = {
+        "case_id": "case_a",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "model": "stub",
+        "prompt_version": PROMPT_VERSION,
+        "evidence": {"case_id": "case_a"},
+        "parse_status": "ok",
+    }
+    path = persist_run(record, results_dir=tmp_path)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["case_id"] == "case_a"
+    blob = path.read_text(encoding="utf-8")
+    assert "sk-test-secret-value" not in blob
+    gitignore = (REPO_ROOT / ".gitignore").read_text(
+        encoding="utf-8"
+    )
+    assert "evaluation/agent/results/" in gitignore
+    with pytest.raises(RuntimeError, match="secret"):
+        persist_run(
+            {
+                "case_id": "case_a",
+                "api_key": "sk-test-secret-value",
+            },
+            results_dir=tmp_path,
+        )
+
+
+def test_load_configured_model_requires_all_env(monkeypatch):
+    monkeypatch.delenv(API_KEY_ENV, raising=False)
+    monkeypatch.delenv(BASE_URL_ENV, raising=False)
+    monkeypatch.delenv(MODEL_ENV, raising=False)
+    assert load_configured_model() is None
+    monkeypatch.setenv(API_KEY_ENV, "  ")
+    monkeypatch.setenv(BASE_URL_ENV, "https://example.invalid/v1")
+    monkeypatch.setenv(MODEL_ENV, "example-model")
+    assert load_configured_model() is None
+    monkeypatch.setenv(API_KEY_ENV, "sk-test")
+    model = load_configured_model()
+    assert model is not None
+    assert model.identifier == "example-model"
+
+
+def test_run_case_dry_run_and_stub_do_not_need_live_api(
+    db,
+    make_task,
+    make_daily_task,
+):
+    _seed_temporal_sessions(db, make_task, make_daily_task)
+    dry = run_case(
+        db,
+        case_id="case_a",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=True,
+        model=None,
+    )
+    assert dry["parse_status"] == "dry_run"
+    assert dry["raw_response"] is None
+    _assert_no_model_input_leak(json.dumps(dry["evidence"]))
+    _assert_no_model_input_leak(dry["prompt"]["system"])
+    _assert_no_model_input_leak(dry["prompt"]["user"])
+
+    stub = StubAnalysisModel(
+        json.dumps(
+            {
+                "observations": [
+                    {
+                        "statement": "A cited missing slice.",
+                        "evidence_refs": ["weekday:sunday"],
+                    }
+                ],
+                "patterns": [],
+                "hypotheses": [],
+                "insufficient_evidence": [],
+                "suggested_drilldowns": [],
+            }
+        )
+    )
+    live = run_case(
+        db,
+        case_id="case_f",
+        from_date=date(2026, 1, 12),
+        to_date=date(2026, 1, 16),
+        dry_run=False,
+        model=stub,
+    )
+    assert live["parse_status"] == "ok"
+    assert live["model"] == "stub"
+    assert live["analysis"]["observations"]
+    known = evidence_ids(live["evidence"])
+    parsed = parse_agent_analysis(
+        live["raw_response"],
+        known_ids=known,
+    )
+    assert "weekday:sunday" not in known
+    assert parsed.unknown_evidence_refs == ("weekday:sunday",)
+
+
+def test_cli_refuses_development_database(monkeypatch):
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://system1:system1@db:5432/system1",
+    )
+    from evaluation.agent.runner import main as agent_main
+
+    with pytest.raises(
+        RuntimeError,
+        match="Refusing to generate evaluation data",
+    ):
+        agent_main(
+            ["--scenario", "temporal_patterns", "--dry-run"]
+        )
