@@ -28,6 +28,9 @@ the pytest suite:
   milestone in-repo)
 - **Deterministic analytics** — outcomes, dayparts, task_age,
   planning, change, drilldown
+- **Production analytical internal boundary** — typed read-only
+  packages in `app/analysis/` over approved `app/analytics/`
+  helpers. No HTTP, no Enkrateia_One, no evaluation migration
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -47,8 +50,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **358 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~38s.
+Result (this documentation snapshot): **375 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~37s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -62,7 +65,8 @@ Consistent with the current code and README direction:
 - HTTPS / reverse-proxy configuration
 - Backups and recovery
 - Production Enkrateia_One agent
-- Production API boundary for agents
+- Production HTTP/API boundary for agents (internal Python
+  contract exists; no routes yet)
 - Agent memory, embeddings, and tooling
 - Wider usability and deployment testing
 - Multi-user architecture
@@ -72,15 +76,14 @@ Consistent with the current code and README direction:
 
 Architectural, not an implementation plan for this change:
 
-1. Consolidate documentation (this snapshot)
-2. Define a production analytical-agent / API boundary
-3. Deployment and security hardening
-4. Deploy a first personal instance
-5. Dogfood with real personal data
-6. Evaluate analytics against real usage before expanding agent
+1. Consolidate documentation (done)
+2. Production analytical internal boundary (this milestone)
+3. Production HTTP/API boundary
+4. Deployment and security hardening
+5. Deploy a first personal instance
+6. Dogfood with real personal data
+7. Evaluate analytics against real usage before expanding agent
    autonomy
-
-None of these is implemented in this documentation change.
 
 ## Current project boundary
 

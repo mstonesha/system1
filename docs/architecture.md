@@ -3,7 +3,8 @@
 Akrasia_Zero is a server-rendered personal execution system. Business
 rules live in Python services. PostgreSQL stores the operational
 record. Deterministic analytics sit beside the application as a
-calculation library. Model interpretation, when it happens at all,
+calculation library. Approved production callers go through
+`app/analysis/`. Model interpretation, when it happens at all,
 happens only in the isolated evaluation harness, downstream of a
 bounded evidence contract.
 
@@ -32,13 +33,24 @@ PostgreSQL
 
 deterministic analytics (`app/analytics/`)
   ↓
+production analytical contract (`app/analysis/`)
+  ↓
+future HTTP/API (not implemented)
+  ↓
+future Enkrateia_One (not implemented)
+
+evaluation path (harness only):
+deterministic analytics (`app/analytics/`)
+  ↓
 bounded evidence contract (`evaluation/agent/`)
   ↓
-analytical-agent evaluation (harness only)
+analytical-agent evaluation
 ```
 
-The last two steps are evaluation-only. No production agent is
-deployed. The web UI does not call `app/analytics/`.
+The production contract is an internal Python boundary. It is not
+an HTTP API. Enkrateia_One is not implemented. The web UI does not
+call `app/analytics/` or `app/analysis/`. Evaluation still calls
+production analytics directly and is unchanged.
 
 ## Domain model
 
@@ -107,10 +119,13 @@ A DailyTask with a running session cannot be removed from the day.
 | `app/services/` | Domain rules: task lifecycle, Today queue, session timer, review summaries |
 | `app/models.py` | Persistence mapping |
 | `app/analytics/` | Deterministic aggregates. No recommendations, no significance tests, no “best day” fields |
+| `app/analysis/` | Approved read-only analytical packages over `app/analytics/`. No interpretation, no SQL, no writes |
 
-Routes should not embed business rules. Analytics must not import
-`evaluation`. Evaluation may call production analytics; it must not
-write to the application database.
+Routes should not embed business rules. Analytics and the
+production analytical contract must not import `evaluation`.
+Evaluation may call production analytics; it must not write to the
+application database. Future HTTP handlers should call
+`app/analysis/`, not arbitrary analytics helpers.
 
 ## Time semantics
 
@@ -171,15 +186,50 @@ Callers cannot supply arbitrary SQL. Grouping keys are interruption
 status or local weekday/daypart derived from `started_at` in
 `APP_TIMEZONE`.
 
+## Production analytical contract
+
+`app/analysis/` is the approved production question set. It may
+call and combine `app/analytics/` helpers. It does not add
+recommendations, hypotheses, prompts, or model I/O.
+
+Public methods: `get_temporal_summary`,
+`get_interruption_summary`, `get_task_age_summary`,
+`get_planning_summary`, `get_change_summary`,
+`get_stuck_task_drilldown`, and bounded
+`get_terminal_task_age_drilldown`.
+
+Inclusive local `from_date`/`to_date` windows are rejected when
+reversed. Date-range size is not capped. Stuck and terminal-age
+drilldowns use the production stuck cap (default 12, min 1,
+max 50). The underlying `terminal_tasks_with_execution_age`
+helper can omit `limit`; the contract never does.
+
+Change windows use a stable preset: full requested period,
+recent 8 weeks, recent 16 weeks, preceding comparable 16 weeks,
+recent-16 versus preceding-16, and the weekly morning/afternoon
+series. Window lengths are not caller-chosen.
+
+This layer accepts an existing SQLAlchemy session. It does not
+open engines, mutate Task / DailyTask / WorkSession, or expose
+arbitrary SQL.
+
+Dependency direction is `app/analysis` → `app/analytics`.
+Analytics must not import `app/analysis`. HTTP transport is still
+absent.
+
 ## Agent boundary
 
 Architectural principle:
 
 ```
 PostgreSQL truth
-  → deterministic application / analytics logic
-  → bounded evidence contract
-  → model interpretation
+  → deterministic analytics (`app/analytics/`)
+  → bounded typed analytical contract (`app/analysis/`)
+  → future HTTP/API (not implemented)
+  → future interpretation (Enkrateia_One, not implemented)
+
+evaluation remains:
+  analytics → evidence contract → model interpretation
 ```
 
 Consequences:
@@ -202,9 +252,10 @@ narrate measurements. The model sees an opaque `case_id`
 work, run sessions, keep an honest queue, retain history.
 
 **Enkrateia_One** is the intended future analytical/agent layer.
-Agents should use a bounded API, not connect to Postgres. That API
-is not specified in this repository. Enkrateia_One is not present
-as a package, service, or runtime.
+Agents should use a bounded API, not connect to Postgres. The
+internal Python contract for that API now exists in
+`app/analysis/`. HTTP transport is not implemented. Enkrateia_One
+is not present as a package, service, or runtime.
 
 ## Data-history philosophy
 
