@@ -28,15 +28,20 @@ Implemented today:
 
 - Core execution loop (tasks, Today, timer, review)
 - Deterministic analytics library
+- Production analytical contract (`app/analysis/`)
+- Local read-only analytical HTTP API (`/api/analysis/*`, also
+  listed in FastAPI `/docs`)
 - Synthetic evaluation datasets A–F
 - Frozen evidence/prompt contracts and an isolated evaluation runner
+
+The analytical HTTP API is **unauthenticated**. It is intended for
+local/development use only. Do not expose it on the public internet.
 
 Not implemented:
 
 - Production deployment hardening
 - Authentication, HTTPS, backups
 - **Enkrateia_One** (the intended future analytical/agent layer)
-- A production API for agents
 - Agent memory, embeddings, or unrestricted database access
 
 Some local infrastructure still uses the legacy `system1` identifier
@@ -70,6 +75,10 @@ docker compose exec web alembic upgrade head
 ```
 
 Then open http://localhost:8000
+
+Analytical JSON endpoints are listed in FastAPI’s `/docs`
+(`http://localhost:8000/docs`). They are unauthenticated and
+must not be exposed publicly.
 
 Compose does not apply migrations on startup. A fresh Postgres volume
 needs `alembic upgrade head` before the UI can use the schema.
@@ -128,6 +137,8 @@ This repository does not document production deployment.
 |---|---|
 | `app/` | FastAPI application: routes, services, models, templates |
 | `app/analytics/` | Deterministic calculation library (not shown in the UI) |
+| `app/analysis/` | Approved read-only analytical contract |
+| `app/routes/analysis.py` | Unauthenticated JSON transport for that contract |
 | `evaluation/` | Isolated synthetic-dataset generator |
 | `evaluation/agent/` | Evidence contracts, prompts, model client, runner |
 | `evaluation/scenarios/` | Dataset generators A–F |

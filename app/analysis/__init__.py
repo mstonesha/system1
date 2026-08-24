@@ -5,6 +5,11 @@ This package is the approved read-only boundary over
 models, or expose arbitrary SQL.
 """
 
+from app.analytics.drilldown import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    MIN_LIMIT,
+)
 from app.analysis.service import (
     get_change_summary,
     get_interruption_summary,
@@ -26,6 +31,9 @@ from app.analysis.types import (
 )
 
 __all__ = [
+    "DEFAULT_LIMIT",
+    "MAX_LIMIT",
+    "MIN_LIMIT",
     "AnalysisPeriod",
     "ChangeSummary",
     "InterruptionSummary",

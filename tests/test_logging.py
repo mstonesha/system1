@@ -36,6 +36,9 @@ def test_startup_log_omits_database_credentials(
 ):
     monkeypatch.setenv("DATABASE_URL", SECRET_DATABASE_URL)
     caplog.set_level(logging.INFO, logger="app")
+    # Alembic fileConfig during eval schema reset disables existing
+    # loggers in this process. Re-enable so startup logging is visible.
+    logging.getLogger("app").disabled = False
 
     log_startup()
 

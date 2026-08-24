@@ -35,7 +35,7 @@ deterministic analytics (`app/analytics/`)
   ↓
 production analytical contract (`app/analysis/`)
   ↓
-future HTTP/API (not implemented)
+read-only HTTP API (`/api/analysis/*`)
   ↓
 future Enkrateia_One (not implemented)
 
@@ -47,10 +47,11 @@ bounded evidence contract (`evaluation/agent/`)
 analytical-agent evaluation
 ```
 
-The production contract is an internal Python boundary. It is not
-an HTTP API. Enkrateia_One is not implemented. The web UI does not
-call `app/analytics/` or `app/analysis/`. Evaluation still calls
-production analytics directly and is unchanged.
+The production contract is now also served as a local read-only
+JSON API at `/api/analysis/*`. That API is unauthenticated and
+must not be exposed on the public internet. Enkrateia_One is not
+implemented. The HTML UI still does not call analytics. Evaluation
+still calls production analytics directly and is unchanged.
 
 ## Domain model
 
@@ -116,6 +117,8 @@ A DailyTask with a running session cannot be removed from the day.
 | Layer | Responsibility |
 |---|---|
 | `app/routes/` | HTTP, forms, template context. Thin. |
+| `app/routes/analysis.py` | Read-only JSON transport over `app/analysis/`. Unauthenticated. |
+| `app/api/` | Pydantic JSON views of `app/analysis/` contracts. Not imported by analysis. |
 | `app/services/` | Domain rules: task lifecycle, Today queue, session timer, review summaries |
 | `app/models.py` | Persistence mapping |
 | `app/analytics/` | Deterministic aggregates. No recommendations, no significance tests, no “best day” fields |
@@ -124,7 +127,7 @@ A DailyTask with a running session cannot be removed from the day.
 Routes should not embed business rules. Analytics and the
 production analytical contract must not import `evaluation`.
 Evaluation may call production analytics; it must not write to the
-application database. Future HTTP handlers should call
+application database. Analytical HTTP handlers call
 `app/analysis/`, not arbitrary analytics helpers.
 
 ## Time semantics
@@ -214,8 +217,8 @@ open engines, mutate Task / DailyTask / WorkSession, or expose
 arbitrary SQL.
 
 Dependency direction is `app/analysis` → `app/analytics`.
-Analytics must not import `app/analysis`. HTTP transport is still
-absent.
+Analytics must not import `app/analysis`. HTTP transport is
+`app/routes/analysis.py` → `app/analysis` and is unauthenticated.
 
 ## Agent boundary
 
@@ -225,7 +228,7 @@ Architectural principle:
 PostgreSQL truth
   → deterministic analytics (`app/analytics/`)
   → bounded typed analytical contract (`app/analysis/`)
-  → future HTTP/API (not implemented)
+  → read-only HTTP API (`/api/analysis/*`)
   → future interpretation (Enkrateia_One, not implemented)
 
 evaluation remains:
@@ -253,9 +256,11 @@ work, run sessions, keep an honest queue, retain history.
 
 **Enkrateia_One** is the intended future analytical/agent layer.
 Agents should use a bounded API, not connect to Postgres. The
-internal Python contract for that API now exists in
-`app/analysis/`. HTTP transport is not implemented. Enkrateia_One
-is not present as a package, service, or runtime.
+internal Python contract for that API exists in `app/analysis/`.
+A local unauthenticated HTTP transport is implemented at
+`/api/analysis/*`. It is not access-controlled and must not be
+exposed publicly. Enkrateia_One is not present as a package,
+service, or runtime.
 
 ## Data-history philosophy
 

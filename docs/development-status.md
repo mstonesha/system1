@@ -30,7 +30,10 @@ the pytest suite:
   planning, change, drilldown
 - **Production analytical internal boundary** — typed read-only
   packages in `app/analysis/` over approved `app/analytics/`
-  helpers. No HTTP, no Enkrateia_One, no evaluation migration
+  helpers
+- **Read-only analytical HTTP API** — `GET /api/analysis/*`
+  transport over `app/analysis/`, documented in FastAPI `/docs`.
+  Unauthenticated; local/development use only
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -50,7 +53,7 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **375 passed**, 1 warning
+Result (this documentation snapshot): **392 passed**, 1 warning
 (Starlette `httpx` TestClient deprecation), ~37s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
@@ -61,12 +64,8 @@ against `system1_test` only.
 Consistent with the current code and README direction:
 
 - Production deployment hardening
-- Authentication (none is implemented)
-- HTTPS / reverse-proxy configuration
-- Backups and recovery
-- Production Enkrateia_One agent
-- Production HTTP/API boundary for agents (internal Python
-  contract exists; no routes yet)
+- Authentication (none is implemented). Do not expose
+  `/api/analysis/*` publicly until authentication exists
 - Agent memory, embeddings, and tooling
 - Wider usability and deployment testing
 - Multi-user architecture
@@ -77,9 +76,9 @@ Consistent with the current code and README direction:
 Architectural, not an implementation plan for this change:
 
 1. Consolidate documentation (done)
-2. Production analytical internal boundary (this milestone)
-3. Production HTTP/API boundary
-4. Deployment and security hardening
+2. Production analytical internal boundary (done)
+3. Read-only analytical HTTP API (this milestone)
+4. Authentication and deployment hardening before public exposure
 5. Deploy a first personal instance
 6. Dogfood with real personal data
 7. Evaluate analytics against real usage before expanding agent
