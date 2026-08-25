@@ -1,6 +1,7 @@
 import pytest
 
 from app.config import (
+    ANALYSIS_API_TOKEN_ENV,
     DEFAULT_APP_NAME,
     DEFAULT_APP_TIMEZONE,
     DEFAULT_BREAK_DURATION_MINUTES,
@@ -20,6 +21,10 @@ def test_default_settings_resolve_correctly(monkeypatch):
     monkeypatch.delenv("FOCUS_SESSION_MINUTES", raising=False)
     monkeypatch.delenv("BREAK_DURATION_MINUTES", raising=False)
     monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv(
+        ANALYSIS_API_TOKEN_ENV,
+        raising=False,
+    )
 
     settings = get_settings()
 
@@ -43,6 +48,7 @@ def test_default_settings_resolve_correctly(monkeypatch):
     assert settings.log_level == "INFO"
     assert settings.focus_session_seconds == 25 * 60
     assert settings.break_duration_seconds == 5 * 60
+    assert settings.analysis_api_token is None
 
 
 def test_environment_overrides_apply_to_settings(monkeypatch):
@@ -55,6 +61,10 @@ def test_environment_overrides_apply_to_settings(monkeypatch):
     monkeypatch.setenv(
         "DATABASE_URL",
         "postgresql+psycopg://user:pass@localhost:5432/custom",
+    )
+    monkeypatch.setenv(
+        ANALYSIS_API_TOKEN_ENV,
+        "test-analysis-api-token-not-a-real-secret",
     )
 
     settings = get_settings()
@@ -69,6 +79,22 @@ def test_environment_overrides_apply_to_settings(monkeypatch):
         settings.database_url
         == "postgresql+psycopg://user:pass@localhost:5432/custom"
     )
+    assert (
+        settings.analysis_api_token
+        == "test-analysis-api-token-not-a-real-secret"
+    )
+    assert (
+        "test-analysis-api-token-not-a-real-secret"
+        not in repr(settings)
+    )
+
+
+def test_blank_analysis_api_token_is_unset(monkeypatch):
+    monkeypatch.setenv(ANALYSIS_API_TOKEN_ENV, "  ")
+
+    settings = get_settings()
+
+    assert settings.analysis_api_token is None
 
 
 def test_database_url_has_no_silent_default(monkeypatch):

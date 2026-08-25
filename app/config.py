@@ -6,7 +6,7 @@ and does not indicate a second application.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.engine import make_url
 
@@ -28,6 +28,7 @@ ALLOWED_LOG_LEVELS = frozenset(
 )
 # Legacy local database name, not the product name.
 TEST_DATABASE_NAME = "system1_test"
+ANALYSIS_API_TOKEN_ENV = "AKRASIA_ANALYSIS_API_TOKEN"
 
 
 def _optional_env(name: str) -> str | None:
@@ -89,6 +90,7 @@ class Settings:
     break_duration_minutes: int
     log_level: str
     database_url: str | None
+    analysis_api_token: str | None = field(repr=False)
 
     @property
     def break_duration_seconds(self) -> int:
@@ -131,6 +133,9 @@ def get_settings() -> Settings:
         ),
         log_level=_env_log_level(),
         database_url=_optional_env("DATABASE_URL"),
+        analysis_api_token=_optional_env(
+            ANALYSIS_API_TOKEN_ENV
+        ),
     )
 
 

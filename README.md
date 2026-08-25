@@ -20,7 +20,8 @@ write conclusions. The evaluation harness tests whether a model can
 read bounded evidence without inventing unsupported claims. That
 harness is not a production agent.
 
-There is no authentication and no multi-user model.
+There is no human/browser authentication and no multi-user model.
+The analytical JSON API requires a machine bearer token.
 
 ## Current status
 
@@ -31,16 +32,33 @@ Implemented today:
 - Production analytical contract (`app/analysis/`)
 - Local read-only analytical HTTP API (`/api/analysis/*`, also
   listed in FastAPI `/docs`)
+- Machine bearer-token authentication for that JSON API
 - Synthetic evaluation datasets A–F
 - Frozen evidence/prompt contracts and an isolated evaluation runner
 
-The analytical HTTP API is **unauthenticated**. It is intended for
-local/development use only. Do not expose it on the public internet.
+`GET /api/analysis/*` requires:
+
+```
+Authorization: Bearer <token>
+```
+
+The token comes from `AKRASIA_ANALYSIS_API_TOKEN`. If that
+setting is unset or blank, those routes fail closed (401). They
+are never anonymously available. Example:
+
+```bash
+curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
+  "http://localhost:8000/api/analysis/temporal?from_date=2026-01-12&to_date=2026-01-16"
+```
+
+The HTML UI (`/`, `/today/page`, `/timer/`, `/review/`) remains
+unauthenticated. This application is still not ready for public
+internet exposure.
 
 Not implemented:
 
 - Production deployment hardening
-- Authentication, HTTPS, backups
+- Human login, HTTPS, backups
 - **Enkrateia_One** (the intended future analytical/agent layer)
 - Agent memory, embeddings, or unrestricted database access
 
@@ -77,8 +95,10 @@ docker compose exec web alembic upgrade head
 Then open http://localhost:8000
 
 Analytical JSON endpoints are listed in FastAPI’s `/docs`
-(`http://localhost:8000/docs`). They are unauthenticated and
-must not be exposed publicly.
+(`http://localhost:8000/docs`). They require a bearer token from
+`AKRASIA_ANALYSIS_API_TOKEN`. Use the Authorize control in `/docs`
+to supply that token for local testing. The HTML UI does not use
+it. The app must not be exposed publicly.
 
 Compose does not apply migrations on startup. A fresh Postgres volume
 needs `alembic upgrade head` before the UI can use the schema.
@@ -138,7 +158,8 @@ This repository does not document production deployment.
 | `app/` | FastAPI application: routes, services, models, templates |
 | `app/analytics/` | Deterministic calculation library (not shown in the UI) |
 | `app/analysis/` | Approved read-only analytical contract |
-| `app/routes/analysis.py` | Unauthenticated JSON transport for that contract |
+| `app/api/auth.py` | Bearer-token dependency for `/api/analysis/*` |
+| `app/routes/analysis.py` | JSON transport for that contract (machine auth) |
 | `evaluation/` | Isolated synthetic-dataset generator |
 | `evaluation/agent/` | Evidence contracts, prompts, model client, runner |
 | `evaluation/scenarios/` | Dataset generators A–F |

@@ -3,7 +3,9 @@
 These routes call ``app.analysis`` only. They do not interpret
 results, open engines, or write application rows.
 
-The API is unauthenticated and is not safe to expose on the
+Machine clients must send a bearer token configured as
+``AKRASIA_ANALYSIS_API_TOKEN``. The HTML UI is not
+authenticated. The API is still not safe to expose on the
 public internet.
 """
 
@@ -34,12 +36,14 @@ from app.api.analysis_models import (
     TemporalSummaryResponse,
     TerminalTaskAgeDrilldownResponse,
 )
+from app.api.auth import require_analysis_api_token
 from app.database import get_db
 
 
 router = APIRouter(
     prefix="/api/analysis",
     tags=["Analysis"],
+    dependencies=[Depends(require_analysis_api_token)],
 )
 
 

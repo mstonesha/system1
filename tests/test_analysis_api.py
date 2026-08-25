@@ -4,6 +4,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from app.analysis import (
     DEFAULT_LIMIT,
     get_change_summary,
@@ -15,7 +17,7 @@ from app.analysis import (
     get_terminal_task_age_drilldown,
 )
 from app.api import analysis_models
-from app.config import get_settings
+from app.config import ANALYSIS_API_TOKEN_ENV, get_settings
 from app.models import DailyTask, Task, WorkSession
 from tests.test_analysis import (
     FROM_DATE,
@@ -44,6 +46,12 @@ ANALYSIS_PATHS = (
     "/api/analysis/change",
     "/api/analysis/stuck-tasks",
 )
+TEST_ANALYSIS_API_TOKEN = (
+    "test-analysis-api-token-not-a-real-secret"
+)
+AUTH_HEADERS = {
+    "Authorization": f"Bearer {TEST_ANALYSIS_API_TOKEN}",
+}
 INTERPRETIVE_KEYS = {
     "recommendation",
     "conclusion",
@@ -121,6 +129,14 @@ def _imported_modules(path: Path):
     return names
 
 
+@pytest.fixture(autouse=True)
+def configure_analysis_api_token(monkeypatch):
+    monkeypatch.setenv(
+        ANALYSIS_API_TOKEN_ENV,
+        TEST_ANALYSIS_API_TOKEN,
+    )
+
+
 def test_analysis_router_is_registered(client):
     spec = client.get("/openapi.json").json()
     for path in ANALYSIS_PATHS:
@@ -146,6 +162,7 @@ def test_html_routes_still_respond(client):
     assert client.get("/").status_code == 200
     assert client.get("/today/page").status_code == 200
     assert client.get("/review/").status_code == 200
+    assert client.get("/timer/").status_code == 200
 
 
 def test_temporal_endpoint_matches_contract(
@@ -159,6 +176,7 @@ def test_temporal_endpoint_matches_contract(
     response = client.get(
         "/api/analysis/temporal",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_temporal_summary(
@@ -187,6 +205,7 @@ def test_interruptions_endpoint_matches_contract(
     response = client.get(
         "/api/analysis/interruptions",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_interruption_summary(
@@ -209,6 +228,7 @@ def test_task_age_endpoint_matches_contract(
     response = client.get(
         "/api/analysis/task-age",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_task_age_summary(
@@ -234,6 +254,7 @@ def test_task_age_drilldown_default_and_bounds(
     defaulted = client.get(
         "/api/analysis/task-age/drilldown",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_terminal_task_age_drilldown(
@@ -248,10 +269,12 @@ def test_task_age_drilldown_default_and_bounds(
     zero = client.get(
         "/api/analysis/task-age/drilldown",
         params={**PERIOD, "limit": 0},
+        headers=AUTH_HEADERS,
     )
     high = client.get(
         "/api/analysis/task-age/drilldown",
         params={**PERIOD, "limit": 51},
+        headers=AUTH_HEADERS,
     )
     assert zero.status_code == 422
     assert high.status_code == 422
@@ -267,6 +290,7 @@ def test_planning_endpoint_keeps_subfamilies(
     response = client.get(
         "/api/analysis/planning",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_planning_summary(
@@ -299,6 +323,7 @@ def test_change_endpoint_exposes_actual_windows(
             "from_date": requested_from.isoformat(),
             "to_date": requested_to.isoformat(),
         },
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_change_summary(
@@ -334,6 +359,7 @@ def test_stuck_tasks_endpoint_default_and_bounds(
     defaulted = client.get(
         "/api/analysis/stuck-tasks",
         params=PERIOD,
+        headers=AUTH_HEADERS,
     )
     expected = _contract_json(
         get_stuck_task_drilldown(
@@ -348,10 +374,12 @@ def test_stuck_tasks_endpoint_default_and_bounds(
     zero = client.get(
         "/api/analysis/stuck-tasks",
         params={**PERIOD, "limit": 0},
+        headers=AUTH_HEADERS,
     )
     high = client.get(
         "/api/analysis/stuck-tasks",
         params={**PERIOD, "limit": 51},
+        headers=AUTH_HEADERS,
     )
     assert zero.status_code == 422
     assert high.status_code == 422
@@ -364,6 +392,7 @@ def test_malformed_date_returns_422(client):
             "from_date": "not-a-date",
             "to_date": TO_DATE.isoformat(),
         },
+        headers=AUTH_HEADERS,
     )
     assert response.status_code == 422
 
@@ -375,6 +404,7 @@ def test_reversed_dates_return_400(client):
             "from_date": TO_DATE.isoformat(),
             "to_date": FROM_DATE.isoformat(),
         },
+        headers=AUTH_HEADERS,
     )
     assert response.status_code == 400
     assert "from_date" in response.json()["detail"]
@@ -393,6 +423,7 @@ def test_timezone_is_server_controlled(
             **PERIOD,
             "timezone": "America/New_York",
         },
+        headers=AUTH_HEADERS,
     )
     assert response.status_code == 200
     assert response.json()["period"]["timezone"] == (
@@ -412,7 +443,11 @@ def test_get_endpoints_do_not_mutate(
     _seed_contract_data(db, make_task, make_daily_task)
     before = _snapshot(db)
     for path in ANALYSIS_PATHS:
-        response = client.get(path, params=PERIOD)
+        response = client.get(
+            path,
+            params=PERIOD,
+            headers=AUTH_HEADERS,
+        )
         assert response.status_code == 200
     db.expire_all()
     assert _snapshot(db) == before
@@ -456,7 +491,11 @@ def test_response_json_has_no_interpretive_keys(
     _seed_contract_data(db, make_task, make_daily_task)
     keys = set()
     for path in ANALYSIS_PATHS:
-        payload = client.get(path, params=PERIOD).json()
+        payload = client.get(
+            path,
+            params=PERIOD,
+            headers=AUTH_HEADERS,
+        ).json()
         keys.update(_collect_keys(payload))
     from pydantic import BaseModel
 

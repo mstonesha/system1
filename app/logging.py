@@ -1,7 +1,8 @@
 """Stdlib logging for Akrasia_Zero.
 
 Logs go to stdout/stderr only. Do not log task titles, descriptions,
-session notes, request bodies, passwords, or database URLs.
+session notes, request bodies, passwords, database URLs,
+Authorization headers, or API tokens.
 """
 
 import logging

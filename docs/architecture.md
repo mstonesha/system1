@@ -31,13 +31,15 @@ SQLAlchemy (`app/models.py`)
   ↓
 PostgreSQL
 
-deterministic analytics (`app/analytics/`)
+trusted machine client
   ↓
-production analytical contract (`app/analysis/`)
+Bearer authentication
   ↓
-read-only HTTP API (`/api/analysis/*`)
+/api/analysis/*
   ↓
-future Enkrateia_One (not implemented)
+app/analysis/
+  ↓
+app/analytics/
 
 evaluation path (harness only):
 deterministic analytics (`app/analytics/`)
@@ -47,11 +49,14 @@ bounded evidence contract (`evaluation/agent/`)
 analytical-agent evaluation
 ```
 
-The production contract is now also served as a local read-only
-JSON API at `/api/analysis/*`. That API is unauthenticated and
-must not be exposed on the public internet. Enkrateia_One is not
-implemented. The HTML UI still does not call analytics. Evaluation
-still calls production analytics directly and is unchanged.
+The production contract is served as a local read-only JSON API
+at `/api/analysis/*`. That API uses possession-based machine
+bearer authentication (`AKRASIA_ANALYSIS_API_TOKEN`). It is not
+human/browser login. The HTML UI remains unauthenticated. Do not
+expose the application on the public internet. Enkrateia_One is
+not implemented. The HTML UI still does not call analytics.
+Evaluation still calls production analytics directly and is
+unchanged.
 
 ## Domain model
 
@@ -117,7 +122,8 @@ A DailyTask with a running session cannot be removed from the day.
 | Layer | Responsibility |
 |---|---|
 | `app/routes/` | HTTP, forms, template context. Thin. |
-| `app/routes/analysis.py` | Read-only JSON transport over `app/analysis/`. Unauthenticated. |
+| `app/routes/analysis.py` | Read-only JSON transport over `app/analysis/`. Machine bearer auth. |
+| `app/api/auth.py` | Shared FastAPI bearer-token dependency for that JSON API |
 | `app/api/` | Pydantic JSON views of `app/analysis/` contracts. Not imported by analysis. |
 | `app/services/` | Domain rules: task lifecycle, Today queue, session timer, review summaries |
 | `app/models.py` | Persistence mapping |
@@ -218,7 +224,9 @@ arbitrary SQL.
 
 Dependency direction is `app/analysis` → `app/analytics`.
 Analytics must not import `app/analysis`. HTTP transport is
-`app/routes/analysis.py` → `app/analysis` and is unauthenticated.
+`app/routes/analysis.py` → `app/analysis`. Machine clients
+authenticate with a bearer token; `app/analysis/` itself is
+unaware of FastAPI security.
 
 ## Agent boundary
 
@@ -228,7 +236,7 @@ Architectural principle:
 PostgreSQL truth
   → deterministic analytics (`app/analytics/`)
   → bounded typed analytical contract (`app/analysis/`)
-  → read-only HTTP API (`/api/analysis/*`)
+  → read-only HTTP API (`/api/analysis/*`, machine bearer auth)
   → future interpretation (Enkrateia_One, not implemented)
 
 evaluation remains:
@@ -257,10 +265,11 @@ work, run sessions, keep an honest queue, retain history.
 **Enkrateia_One** is the intended future analytical/agent layer.
 Agents should use a bounded API, not connect to Postgres. The
 internal Python contract for that API exists in `app/analysis/`.
-A local unauthenticated HTTP transport is implemented at
-`/api/analysis/*`. It is not access-controlled and must not be
-exposed publicly. Enkrateia_One is not present as a package,
-service, or runtime.
+A local HTTP transport is implemented at `/api/analysis/*` and
+protected with a machine bearer token. That is API authentication
+for trusted callers, not user/browser authentication. It must not
+be treated as public-internet readiness. Enkrateia_One is not
+present as a package, service, or runtime.
 
 ## Data-history philosophy
 
@@ -296,6 +305,6 @@ Deliberately out of scope for this repository state:
 - Unrestricted database access
 - Multi-user SaaS architecture
 - Production agent memory, embeddings, or tool loops
-- Authentication
+- Human/browser login, accounts, roles, or session cookies
 - Production reverse-proxy / HTTPS configuration
 - Backups and recovery automation

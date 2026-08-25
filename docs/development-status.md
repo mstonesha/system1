@@ -32,8 +32,9 @@ the pytest suite:
   packages in `app/analysis/` over approved `app/analytics/`
   helpers
 - **Read-only analytical HTTP API** — `GET /api/analysis/*`
-  transport over `app/analysis/`, documented in FastAPI `/docs`.
-  Unauthenticated; local/development use only
+  transport over `app/analysis/`, documented in FastAPI `/docs`
+- **Analytical API bearer authentication** — machine token from
+  `AKRASIA_ANALYSIS_API_TOKEN`; HTML UI remains unauthenticated
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -53,8 +54,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **392 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~37s.
+Result (this documentation snapshot): **419 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~39s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -64,8 +65,9 @@ against `system1_test` only.
 Consistent with the current code and README direction:
 
 - Production deployment hardening
-- Authentication (none is implemented). Do not expose
-  `/api/analysis/*` publicly until authentication exists
+- Human/browser session authentication (none is implemented).
+  Machine bearer auth on `/api/analysis/*` is not public-internet
+  readiness
 - Agent memory, embeddings, and tooling
 - Wider usability and deployment testing
 - Multi-user architecture
@@ -77,11 +79,13 @@ Architectural, not an implementation plan for this change:
 
 1. Consolidate documentation (done)
 2. Production analytical internal boundary (done)
-3. Read-only analytical HTTP API (this milestone)
-4. Authentication and deployment hardening before public exposure
-5. Deploy a first personal instance
-6. Dogfood with real personal data
-7. Evaluate analytics against real usage before expanding agent
+3. Read-only analytical HTTP API (done)
+4. Analytical API bearer authentication (done)
+5. Human session authentication and deployment hardening
+   before public exposure
+6. Deploy a first personal instance
+7. Dogfood with real personal data
+8. Evaluate analytics against real usage before expanding agent
    autonomy
 
 ## Current project boundary
