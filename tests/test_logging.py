@@ -3,7 +3,11 @@ import logging
 import pytest
 
 import app.services.sessions as sessions_mod
-from app.config import ANALYSIS_API_TOKEN_ENV, get_settings
+from app.config import (
+    ANALYSIS_API_TOKEN_ENV,
+    PASSWORD_HASH_ENV,
+    get_settings,
+)
 from app.logging import describe_database, log_startup
 from app.services.sessions import start_work_session
 from app.services.today import add_task_to_day
@@ -15,6 +19,9 @@ SECRET_DATABASE_URL = (
 )
 SECRET_ANALYSIS_API_TOKEN = (
     "test-logging-analysis-api-token-not-a-real-secret"
+)
+SECRET_PASSWORD_HASH = (
+    "test-logging-argon2id-hash-not-a-real-secret"
 )
 
 
@@ -42,6 +49,10 @@ def test_startup_log_omits_database_credentials(
         ANALYSIS_API_TOKEN_ENV,
         SECRET_ANALYSIS_API_TOKEN,
     )
+    monkeypatch.setenv(
+        PASSWORD_HASH_ENV,
+        SECRET_PASSWORD_HASH,
+    )
     caplog.set_level(logging.INFO, logger="app")
     # Alembic fileConfig during eval schema reset disables existing
     # loggers in this process. Re-enable so startup logging is visible.
@@ -60,6 +71,8 @@ def test_startup_log_omits_database_credentials(
     assert "appdb" in text
     assert SECRET_ANALYSIS_API_TOKEN not in text
     assert "AKRASIA_ANALYSIS_API_TOKEN" not in text
+    assert SECRET_PASSWORD_HASH not in text
+    assert "password_hash=configured" in text
 
 
 def test_expected_conflict_is_not_logged_as_error(

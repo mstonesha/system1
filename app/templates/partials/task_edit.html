@@ -5,6 +5,7 @@
         hx-target="#task-{{ task.id }}"
         hx-swap="outerHTML"
     >
+        {% include "partials/csrf_field.html" %}
         <input
             type="text"
             name="title"

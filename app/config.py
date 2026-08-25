@@ -29,6 +29,8 @@ ALLOWED_LOG_LEVELS = frozenset(
 # Legacy local database name, not the product name.
 TEST_DATABASE_NAME = "system1_test"
 ANALYSIS_API_TOKEN_ENV = "AKRASIA_ANALYSIS_API_TOKEN"
+PASSWORD_HASH_ENV = "AKRASIA_PASSWORD_HASH"
+COOKIE_SECURE_ENV = "AKRASIA_COOKIE_SECURE"
 
 
 def _optional_env(name: str) -> str | None:
@@ -63,6 +65,26 @@ def _env_int(name: str, default: int) -> int:
     return int(value)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = _optional_env(name)
+
+    if value is None:
+        return default
+
+    lowered = value.lower()
+
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(
+        f"Invalid {name} {value!r}. "
+        "Expected a boolean value."
+    )
+
+
 def _env_log_level() -> str:
     value = _env_str(
         "LOG_LEVEL",
@@ -91,6 +113,8 @@ class Settings:
     log_level: str
     database_url: str | None
     analysis_api_token: str | None = field(repr=False)
+    password_hash: str | None = field(repr=False)
+    cookie_secure: bool
 
     @property
     def break_duration_seconds(self) -> int:
@@ -135,6 +159,13 @@ def get_settings() -> Settings:
         database_url=_optional_env("DATABASE_URL"),
         analysis_api_token=_optional_env(
             ANALYSIS_API_TOKEN_ENV
+        ),
+        password_hash=_optional_env(
+            PASSWORD_HASH_ENV
+        ),
+        cookie_secure=_env_bool(
+            COOKIE_SECURE_ENV,
+            False,
         ),
     )
 

@@ -20,8 +20,9 @@ write conclusions. The evaluation harness tests whether a model can
 read bounded evidence without inventing unsupported claims. That
 harness is not a production agent.
 
-There is no human/browser authentication and no multi-user model.
-The analytical JSON API requires a machine bearer token.
+There is a single-operator password for the HTML UI and a
+separate machine bearer token for `/api/analysis/*`. There is no
+multi-user model.
 
 ## Current status
 
@@ -33,10 +34,22 @@ Implemented today:
 - Local read-only analytical HTTP API (`/api/analysis/*`, also
   listed in FastAPI `/docs`)
 - Machine bearer-token authentication for that JSON API
+- Single-operator password login and server-side browser sessions
 - Synthetic evaluation datasets A–F
 - Frozen evidence/prompt contracts and an isolated evaluation runner
 
-`GET /api/analysis/*` requires:
+The HTML UI requires a password. Store only an Argon2id hash in
+`AKRASIA_PASSWORD_HASH`, never the raw password:
+
+```bash
+python -m app.auth.password
+```
+
+Paste the printed hash into the environment. Local HTTP must keep
+`AKRASIA_COOKIE_SECURE=false`. Production HTTPS deployments must
+set it `true`.
+
+`GET /api/analysis/*` requires a separate machine token:
 
 ```
 Authorization: Bearer <token>
@@ -51,14 +64,19 @@ curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
   "http://localhost:8000/api/analysis/temporal?from_date=2026-01-12&to_date=2026-01-16"
 ```
 
-The HTML UI (`/`, `/today/page`, `/timer/`, `/review/`) remains
-unauthenticated. This application is still not ready for public
-internet exposure.
+The HTML UI (`/`, `/today/page`, `/timer/`, `/review/`) uses
+server-side sessions, not that bearer token. Browser login does
+not satisfy API auth, and the API token does not log anyone into
+the UI. Authenticated HTML includes a per-session CSRF token for
+forms and HTMX; the raw browser session token is never rendered
+into the page. `POST /login` has no pre-login CSRF token; a
+successful login always issues a fresh session. This application
+is still not ready for public internet exposure.
 
 Not implemented:
 
-- Production deployment hardening
-- Human login, HTTPS, backups
+- Production deployment hardening (HTTPS, reverse proxy, backups)
+- Multi-user accounts, OAuth, or password-reset email
 - **Enkrateia_One** (the intended future analytical/agent layer)
 - Agent memory, embeddings, or unrestricted database access
 
@@ -73,6 +91,7 @@ and does not indicate a second application. The Python package is
 - Jinja2 templates with HTMX for in-page updates
 - PostgreSQL 17
 - SQLAlchemy 2.x and Alembic
+- Argon2id (`argon2-cffi`) for the operator password hash
 - Docker Compose for local run, tests, and evaluation
 - pytest
 - Python 3.13 in the application image
@@ -97,8 +116,8 @@ Then open http://localhost:8000
 Analytical JSON endpoints are listed in FastAPI’s `/docs`
 (`http://localhost:8000/docs`). They require a bearer token from
 `AKRASIA_ANALYSIS_API_TOKEN`. Use the Authorize control in `/docs`
-to supply that token for local testing. The HTML UI does not use
-it. The app must not be exposed publicly.
+to supply that token for local testing. The HTML UI uses password
+login instead. The app must not be exposed publicly.
 
 Compose does not apply migrations on startup. A fresh Postgres volume
 needs `alembic upgrade head` before the UI can use the schema.
@@ -158,7 +177,9 @@ This repository does not document production deployment.
 | `app/` | FastAPI application: routes, services, models, templates |
 | `app/analytics/` | Deterministic calculation library (not shown in the UI) |
 | `app/analysis/` | Approved read-only analytical contract |
+| `app/auth/` | Operator password verification and browser sessions |
 | `app/api/auth.py` | Bearer-token dependency for `/api/analysis/*` |
+| `app/routes/auth.py` | `/login` and `/logout` |
 | `app/routes/analysis.py` | JSON transport for that contract (machine auth) |
 | `evaluation/` | Isolated synthetic-dataset generator |
 | `evaluation/agent/` | Evidence contracts, prompts, model client, runner |

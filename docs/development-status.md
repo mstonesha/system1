@@ -34,7 +34,12 @@ the pytest suite:
 - **Read-only analytical HTTP API** — `GET /api/analysis/*`
   transport over `app/analysis/`, documented in FastAPI `/docs`
 - **Analytical API bearer authentication** — machine token from
-  `AKRASIA_ANALYSIS_API_TOKEN`; HTML UI remains unauthenticated
+  `AKRASIA_ANALYSIS_API_TOKEN`; independent of HTML login
+- **Human password/session authentication** — password-only login,
+  server-side `BrowserSession`, CSRF on cookie-authenticated
+  mutations. The CSRF token is rendered into authenticated HTML;
+  `akrasia_csrf` is an HttpOnly re-render store, not a validator.
+  `POST /login` has no pre-auth CSRF token (documented)
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -54,8 +59,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **419 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~39s.
+Result (this documentation snapshot): **465 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~43s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -64,10 +69,10 @@ against `system1_test` only.
 
 Consistent with the current code and README direction:
 
-- Production deployment hardening
-- Human/browser session authentication (none is implemented).
-  Machine bearer auth on `/api/analysis/*` is not public-internet
-  readiness
+- Production deployment hardening: HTTPS/reverse proxy, secure
+  cookies in production, firewall/network exposure, backups,
+  secret provisioning, first VPS
+- Multi-user accounts, OAuth, password-reset email, MFA
 - Agent memory, embeddings, and tooling
 - Wider usability and deployment testing
 - Multi-user architecture
@@ -81,9 +86,9 @@ Architectural, not an implementation plan for this change:
 2. Production analytical internal boundary (done)
 3. Read-only analytical HTTP API (done)
 4. Analytical API bearer authentication (done)
-5. Human session authentication and deployment hardening
-   before public exposure
-6. Deploy a first personal instance
+5. Human password/session authentication (done)
+6. Deploy a first personal instance (HTTPS and secret
+   provisioning still outstanding)
 7. Dogfood with real personal data
 8. Evaluate analytics against real usage before expanding agent
    autonomy

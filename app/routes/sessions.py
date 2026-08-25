@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth.http import require_browser_session
 from app.database import get_db
 from app.services.sessions import (
     get_running_session,
@@ -14,6 +15,7 @@ from app.time import today
 router = APIRouter(
     prefix="/sessions",
     tags=["sessions"],
+    dependencies=[Depends(require_browser_session)],
 )
 
 

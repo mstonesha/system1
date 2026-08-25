@@ -16,3 +16,5 @@ psycopg[binary]==3.3.4
 alembic==1.19.1
 python-multipart==0.0.32
 tzdata==2026.3
+# Argon2id for the single-operator password hash.
+argon2-cffi==25.1.0

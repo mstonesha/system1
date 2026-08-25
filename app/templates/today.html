@@ -35,6 +35,8 @@ Today's Tasks | {{ settings.app_name }}
                     class="today-checkbox-form"
                 >
 
+                    {% include "partials/csrf_field.html" %}
+
                     <input
                         type="hidden"
                         name="target_date"
@@ -58,6 +60,8 @@ Today's Tasks | {{ settings.app_name }}
                     action="/today/add-from-page"
                     class="today-checkbox-form"
                 >
+
+                    {% include "partials/csrf_field.html" %}
 
                     <input
                         type="hidden"
@@ -269,6 +273,8 @@ Today's Tasks | {{ settings.app_name }}
                                     action="/today/{{ daily_task.id }}/move"
                                 >
 
+                                    {% include "partials/csrf_field.html" %}
+
                                     <input
                                         type="hidden"
                                         name="direction"
@@ -292,6 +298,8 @@ Today's Tasks | {{ settings.app_name }}
                                     method="post"
                                     action="/today/{{ daily_task.id }}/move"
                                 >
+
+                                    {% include "partials/csrf_field.html" %}
 
                                     <input
                                         type="hidden"
@@ -324,6 +332,8 @@ Today's Tasks | {{ settings.app_name }}
                                 action="/today/{{ daily_task.id }}/commit-sessions"
                                 class="queue-session-form"
                             >
+
+                                {% include "partials/csrf_field.html" %}
 
                                 <input
                                     type="hidden"

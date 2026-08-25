@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}
+Sign in | {{ settings.app_name }}
+{% endblock %}
+
+{% block primary_nav %}{% endblock %}
+
+{% block footer %}{% endblock %}
+
+{% block content %}
+
+<section class="login-page">
+
+    <form
+        method="post"
+        action="/login"
+        class="login-form"
+    >
+
+        <input
+            type="hidden"
+            name="next"
+            value="{{ next_path }}"
+        >
+
+        {% if error %}
+            <p
+                class="login-error"
+                role="alert"
+            >
+                {{ error }}
+            </p>
+        {% endif %}
+
+        <label
+            class="login-label"
+            for="password"
+        >
+            Password
+        </label>
+
+        <input
+            id="password"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+        >
+
+        <button
+            type="submit"
+            class="primary login-submit"
+        >
+            Sign in
+        </button>
+
+    </form>
+
+</section>
+
+{% endblock %}

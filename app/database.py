@@ -20,6 +20,11 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    """Yield one SQLAlchemy session per request.
+
+    Callers commit their own writes. This generator only closes
+    the session; it does not commit at request end.
+    """
     db = SessionLocal()
 
     try:

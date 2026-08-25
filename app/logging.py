@@ -1,8 +1,10 @@
 """Stdlib logging for Akrasia_Zero.
 
 Logs go to stdout/stderr only. Do not log task titles, descriptions,
-session notes, request bodies, passwords, database URLs,
-Authorization headers, or API tokens.
+session notes, request bodies, passwords, password hashes,
+database URLs, Authorization headers, API tokens, session
+tokens, CSRF tokens, or Cookie headers. CSRF tokens may appear
+in authenticated HTML; they must still never be logged.
 """
 
 import logging
@@ -50,14 +52,23 @@ def log_startup() -> None:
     settings = get_settings()
     logger = logging.getLogger("app")
 
+    password_state = (
+        "configured"
+        if settings.password_hash
+        else "unset"
+    )
+
     logger.info(
         "Starting %s timezone=%s focus_minutes=%s "
-        "break_minutes=%s log_level=%s %s",
+        "break_minutes=%s log_level=%s "
+        "password_hash=%s cookie_secure=%s %s",
         settings.app_name,
         settings.timezone,
         settings.focus_session_minutes,
         settings.break_duration_minutes,
         settings.log_level,
+        password_state,
+        settings.cookie_secure,
         describe_database(settings.database_url),
     )
 

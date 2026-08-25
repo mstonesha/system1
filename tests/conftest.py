@@ -2,12 +2,20 @@ from collections.abc import Callable, Generator
 from datetime import date, datetime
 
 import pytest
+from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import require_test_database_url
+from app.auth.http import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
+from app.auth.sessions import issue_session
+from app.config import (
+    ANALYSIS_API_TOKEN_ENV,
+    COOKIE_SECURE_ENV,
+    PASSWORD_HASH_ENV,
+    require_test_database_url,
+)
 from app.time import today
 
 TEST_DATABASE_URL = require_test_database_url()
@@ -15,6 +23,88 @@ TEST_DATABASE_URL = require_test_database_url()
 from app.database import Base, get_db
 from app.main import app
 from app.models import DailyTask, Task, WorkSession
+
+
+TEST_OPERATOR_PASSWORD = (
+    "test-operator-password-not-a-secret"
+)
+TEST_ANALYSIS_API_TOKEN = (
+    "test-analysis-api-token-not-a-real-secret"
+)
+STATE_CHANGING_METHODS = frozenset(
+    {"POST", "PUT", "PATCH", "DELETE"}
+)
+
+
+class _SuppressRehashHasher:
+    """Keep production hasher params; skip expected test rehash flags."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def check_needs_rehash(self, encoded):
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+class CSRFAwareTestClient(TestClient):
+    def __init__(self, *args, **kwargs):
+        self.csrf_token = kwargs.pop("csrf_token", "")
+        self.raw_session_token = kwargs.pop(
+            "raw_session_token",
+            "",
+        )
+        self.inject_csrf = kwargs.pop("inject_csrf", True)
+        super().__init__(*args, **kwargs)
+
+    def request(self, method, url, **kwargs):
+        if (
+            self.inject_csrf
+            and self.csrf_token
+            and str(method).upper() in STATE_CHANGING_METHODS
+        ):
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault(
+                "X-CSRF-Token",
+                self.csrf_token,
+            )
+            kwargs["headers"] = headers
+        return super().request(method, url, **kwargs)
+
+
+@pytest.fixture(scope="session")
+def operator_password_hash() -> str:
+    return PasswordHasher(
+        time_cost=1,
+        memory_cost=8,
+        parallelism=1,
+    ).hash(TEST_OPERATOR_PASSWORD)
+
+
+@pytest.fixture(autouse=True)
+def configure_operator_auth(
+    monkeypatch,
+    operator_password_hash,
+):
+    monkeypatch.setenv(
+        PASSWORD_HASH_ENV,
+        operator_password_hash,
+    )
+    monkeypatch.setenv(COOKIE_SECURE_ENV, "false")
+    monkeypatch.setenv(
+        ANALYSIS_API_TOKEN_ENV,
+        TEST_ANALYSIS_API_TOKEN,
+    )
+    # Low-cost test hashes would otherwise warn on every login.
+    from app.auth import password as password_mod
+
+    monkeypatch.setattr(
+        password_mod,
+        "_hasher",
+        _SuppressRehashHasher(password_mod._hasher),
+    )
 
 
 @pytest.fixture(scope="session")
@@ -48,20 +138,52 @@ def db(engine: Engine) -> Generator[Session, None, None]:
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "TRUNCATE work_sessions, daily_tasks, tasks "
+                    "TRUNCATE browser_sessions, work_sessions, "
+                    "daily_tasks, tasks "
                     "RESTART IDENTITY CASCADE"
                 )
             )
 
 
-@pytest.fixture
-def client(db):
+def _override_db(db):
     def override_get_db():
         yield db
 
     app.dependency_overrides[get_db] = override_get_db
 
-    with TestClient(app) as test_client:
+
+@pytest.fixture
+def client(db):
+    _override_db(db)
+    issued = issue_session(db, user_agent="pytest")
+
+    with CSRFAwareTestClient(
+        app,
+        csrf_token=issued.raw_csrf,
+        raw_session_token=issued.raw_token,
+        inject_csrf=True,
+    ) as test_client:
+        test_client.cookies.set(
+            SESSION_COOKIE_NAME,
+            issued.raw_token,
+        )
+        test_client.cookies.set(
+            CSRF_COOKIE_NAME,
+            issued.raw_csrf,
+        )
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def anonymous_client(db):
+    _override_db(db)
+
+    with CSRFAwareTestClient(
+        app,
+        inject_csrf=False,
+    ) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()

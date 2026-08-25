@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from app.auth.http import require_browser_session
 from app.database import get_db
 from app.models import Task
 from app.services.tasks import (
@@ -15,7 +16,9 @@ from app.services.tasks import (
 from app.templating import templates
 
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(require_browser_session)],
+)
 
 
 def render_task_tree(

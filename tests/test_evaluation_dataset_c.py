@@ -170,7 +170,7 @@ def test_alembic_schema_was_applied(eval_db):
     version = eval_db.execute(
         text("SELECT version_num FROM alembic_version")
     ).scalar_one()
-    assert version == "f1a9b3c4d5e6"
+    assert version == "c3f8e2a1b0d4"
 
 
 def test_volume_and_date_range_are_sensible(generated_eval, eval_db):

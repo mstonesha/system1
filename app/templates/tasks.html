@@ -79,6 +79,8 @@ Task List | {{ settings.app_name }}
             "
         >
 
+            {% include "partials/csrf_field.html" %}
+
             <input
                 type="text"
                 name="title"

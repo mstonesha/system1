@@ -132,6 +132,8 @@
                 hx-include="#show-inactive"
             >
 
+                {% include "partials/csrf_field.html" %}
+
                 <input
                     type="text"
                     name="title"
@@ -287,6 +289,8 @@
                 this.hidden = true;
             "
         >
+
+            {% include "partials/csrf_field.html" %}
 
             <input
                 type="text"

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.auth.http import require_browser_session
 from app.config import get_settings
 from app.database import get_db
 from app.models import WorkSession
@@ -21,6 +22,7 @@ from app.time import today, utc_now
 router = APIRouter(
     prefix="/timer",
     tags=["timer"],
+    dependencies=[Depends(require_browser_session)],
 )
 
 

@@ -91,7 +91,8 @@ def _schema_facts(connection) -> dict:
                 "JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace "
                 "WHERE nsp.nspname = 'public' "
                 "AND rel.relname IN "
-                "('tasks', 'daily_tasks', 'work_sessions')"
+                "('tasks', 'daily_tasks', 'work_sessions', "
+                "'browser_sessions')"
             )
         )
     }
@@ -119,13 +120,15 @@ def _schema_facts(connection) -> dict:
 
 
 def _assert_current_schema(facts: dict) -> None:
-    assert facts["alembic_head"] == "f1a9b3c4d5e6"
+    assert facts["alembic_head"] == "c3f8e2a1b0d4"
     assert facts["tables"] >= {
         "tasks",
         "daily_tasks",
         "work_sessions",
+        "browser_sessions",
         "alembic_version",
     }
+    assert "users" not in facts["tables"]
 
     for table_name, column_name in (
         ("tasks", "created_at"),
@@ -164,6 +167,25 @@ def _assert_current_schema(facts: dict) -> None:
     assert "WHERE" in running_index
     assert "running" in running_index
 
+    for column_name in (
+        "created_at",
+        "last_seen_at",
+        "idle_expires_at",
+        "absolute_expires_at",
+        "revoked_at",
+    ):
+        assert (
+            facts["columns"][
+                ("browser_sessions", column_name)
+            ]
+            == "timestamp with time zone"
+        )
+
+    assert (
+        facts["constraints"]["uq_browser_sessions_token_hash"]
+        == "UNIQUE (token_hash)"
+    )
+
 
 def test_alembic_upgrade_head_on_empty_database():
     admin = _admin_engine()
@@ -175,6 +197,24 @@ def test_alembic_upgrade_head_on_empty_database():
         verify_engine = create_engine(_verify_url())
         try:
             with verify_engine.connect() as connection:
+                _run_alembic(connection, "head")
+                connection.commit()
+                _assert_current_schema(_schema_facts(connection))
+
+                _run_alembic(
+                    connection,
+                    "f1a9b3c4d5e6",
+                    downgrade=True,
+                )
+                connection.commit()
+                after_one_step = _schema_facts(connection)
+                assert after_one_step["alembic_head"] == (
+                    "f1a9b3c4d5e6"
+                )
+                assert "browser_sessions" not in (
+                    after_one_step["tables"]
+                )
+
                 _run_alembic(connection, "head")
                 connection.commit()
                 _assert_current_schema(_schema_facts(connection))

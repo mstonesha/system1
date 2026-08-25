@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.auth.http import require_browser_session
 from app.database import get_db
 from app.services.review import build_daily_review
 from app.templating import templates
@@ -11,6 +12,7 @@ from app.time import today
 router = APIRouter(
     prefix="/review",
     tags=["review"],
+    dependencies=[Depends(require_browser_session)],
 )
 
 

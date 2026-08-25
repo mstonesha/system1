@@ -2,12 +2,14 @@ import pytest
 
 from app.config import (
     ANALYSIS_API_TOKEN_ENV,
+    COOKIE_SECURE_ENV,
     DEFAULT_APP_NAME,
     DEFAULT_APP_TIMEZONE,
     DEFAULT_BREAK_DURATION_MINUTES,
     DEFAULT_DISPLAY_NAME,
     DEFAULT_FOCUS_SESSION_MINUTES,
     DEFAULT_LOG_LEVEL,
+    PASSWORD_HASH_ENV,
     TEST_DATABASE_NAME,
     get_settings,
     require_test_database_url,
@@ -23,6 +25,14 @@ def test_default_settings_resolve_correctly(monkeypatch):
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     monkeypatch.delenv(
         ANALYSIS_API_TOKEN_ENV,
+        raising=False,
+    )
+    monkeypatch.delenv(
+        PASSWORD_HASH_ENV,
+        raising=False,
+    )
+    monkeypatch.delenv(
+        COOKIE_SECURE_ENV,
         raising=False,
     )
 
@@ -49,6 +59,8 @@ def test_default_settings_resolve_correctly(monkeypatch):
     assert settings.focus_session_seconds == 25 * 60
     assert settings.break_duration_seconds == 5 * 60
     assert settings.analysis_api_token is None
+    assert settings.password_hash is None
+    assert settings.cookie_secure is False
 
 
 def test_environment_overrides_apply_to_settings(monkeypatch):
@@ -66,6 +78,11 @@ def test_environment_overrides_apply_to_settings(monkeypatch):
         ANALYSIS_API_TOKEN_ENV,
         "test-analysis-api-token-not-a-real-secret",
     )
+    monkeypatch.setenv(
+        PASSWORD_HASH_ENV,
+        "test-argon2id-hash-not-a-real-secret",
+    )
+    monkeypatch.setenv(COOKIE_SECURE_ENV, "true")
 
     settings = get_settings()
 
@@ -87,6 +104,15 @@ def test_environment_overrides_apply_to_settings(monkeypatch):
         "test-analysis-api-token-not-a-real-secret"
         not in repr(settings)
     )
+    assert (
+        settings.password_hash
+        == "test-argon2id-hash-not-a-real-secret"
+    )
+    assert (
+        "test-argon2id-hash-not-a-real-secret"
+        not in repr(settings)
+    )
+    assert settings.cookie_secure is True
 
 
 def test_blank_analysis_api_token_is_unset(monkeypatch):

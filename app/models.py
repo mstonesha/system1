@@ -209,3 +209,58 @@ class WorkSession(Base):
     daily_task: Mapped["DailyTask"] = relationship(
         back_populates="work_sessions",
     )
+
+
+class BrowserSession(Base):
+    __tablename__ = "browser_sessions"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_browser_sessions_token_hash",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    csrf_token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    idle_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    absolute_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    user_agent: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )

@@ -83,6 +83,8 @@ Session Timer | {{ settings.app_name }}
                     action="/timer/end-early"
                 >
 
+                    {% include "partials/csrf_field.html" %}
+
                     <input
                         type="hidden"
                         name="session_id"
@@ -132,6 +134,8 @@ Session Timer | {{ settings.app_name }}
                     action="/timer/commit"
                     class="outcome-form"
                 >
+
+                    {% include "partials/csrf_field.html" %}
 
                     <input
                         type="hidden"
@@ -336,6 +340,8 @@ Session Timer | {{ settings.app_name }}
                 action="/timer/start"
                 class="focus-start-form"
             >
+
+                {% include "partials/csrf_field.html" %}
 
                 <div class="session-length-control">
 

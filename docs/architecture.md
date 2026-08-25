@@ -23,9 +23,11 @@ Approximate flow:
 ```
 Browser
   ↓
-FastAPI routes (`app/routes/`)
+password verification
   ↓
-service / domain logic (`app/services/`)
+server-side BrowserSession
+  ↓
+HTML UI (`app/routes/` → `app/services/`)
   ↓
 SQLAlchemy (`app/models.py`)
   ↓
@@ -51,12 +53,20 @@ analytical-agent evaluation
 
 The production contract is served as a local read-only JSON API
 at `/api/analysis/*`. That API uses possession-based machine
-bearer authentication (`AKRASIA_ANALYSIS_API_TOKEN`). It is not
-human/browser login. The HTML UI remains unauthenticated. Do not
-expose the application on the public internet. Enkrateia_One is
-not implemented. The HTML UI still does not call analytics.
-Evaluation still calls production analytics directly and is
-unchanged.
+bearer authentication (`AKRASIA_ANALYSIS_API_TOKEN`). Human login
+is separate: a password-only form creates a server-side
+`BrowserSession`. The raw session token stays in an HttpOnly
+cookie and is never rendered into HTML; PostgreSQL stores
+SHA-256(token) only. Idle lifetime is 30 days (refreshed on a
+1-hour interval) and absolute lifetime is 90 days. Authenticated
+HTML includes a session-bound CSRF token for forms and HTMX.
+`POST /login` has no pre-authentication CSRF token (documented
+under BrowserSession). Sessions are not bound to IP or
+User-Agent. One operator may have several concurrent device
+sessions. Do not expose the application on the public internet.
+Enkrateia_One is not implemented. The HTML UI still does not
+call analytics. Evaluation still calls production analytics
+directly and is unchanged.
 
 ## Domain model
 
@@ -117,11 +127,52 @@ those writes rolls all of it back.
 
 A DailyTask with a running session cannot be removed from the day.
 
+### BrowserSession
+
+Server-side row for one HTML-browser login. PostgreSQL stores
+SHA-256 of the opaque session cookie (`token_hash`) and SHA-256
+of the CSRF token (`csrf_token_hash`), plus idle/absolute expiry,
+optional `revoked_at`, and a bounded user-agent string. There is
+no users table.
+
+Secret handling:
+
+- Operator password: never persisted, never logged, never returned
+- Raw session token: `akrasia_session` cookie only; never
+  database, HTML, or logs
+- Session token hash: PostgreSQL
+- Raw CSRF token: may appear in authenticated HTML (hidden form
+  fields and HTMX `X-CSRF-Token`) so the browser can submit it.
+  Also kept in the HttpOnly `akrasia_csrf` cookie so later HTML
+  can re-render it. PostgreSQL has no raw CSRF value. Logs must
+  not include it. The cookie is not accepted as the submitted
+  CSRF value; verification uses the form field or header against
+  `csrf_token_hash`
+- CSRF token hash: PostgreSQL
+
+Idle lifetime is 30 days. When `last_seen_at` is at least one
+hour old, a request refreshes `last_seen_at` and
+`idle_expires_at`. That write commits on a separate SQLAlchemy
+session so it does not flush pending Task / DailyTask /
+WorkSession changes on the request session. Absolute lifetime is
+90 days and is never extended.
+
+`POST /login` has no anonymous pre-login session and therefore no
+synchronizer CSRF token. That is a bounded decision for the
+current single-operator, password-only, SameSite=Lax application:
+there is no username and no attacker-controlled alternate
+account. Successful login always issues a fresh random session; a
+preexisting cookie is never promoted (the presented session is
+revoked). Authenticated state-changing actions remain
+CSRF-protected.
+
 ## Business-logic boundary
 
 | Layer | Responsibility |
 |---|---|
 | `app/routes/` | HTTP, forms, template context. Thin. |
+| `app/routes/auth.py` | Password login and logout. |
+| `app/auth/` | Argon2id password check and BrowserSession lifecycle. |
 | `app/routes/analysis.py` | Read-only JSON transport over `app/analysis/`. Machine bearer auth. |
 | `app/api/auth.py` | Shared FastAPI bearer-token dependency for that JSON API |
 | `app/api/` | Pydantic JSON views of `app/analysis/` contracts. Not imported by analysis. |
@@ -305,6 +356,6 @@ Deliberately out of scope for this repository state:
 - Unrestricted database access
 - Multi-user SaaS architecture
 - Production agent memory, embeddings, or tool loops
-- Human/browser login, accounts, roles, or session cookies
+- Accounts, roles, OAuth, or password-reset email
 - Production reverse-proxy / HTTPS configuration
 - Backups and recovery automation

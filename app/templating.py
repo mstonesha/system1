@@ -8,7 +8,24 @@ class LiveSettings:
         return getattr(get_settings(), name)
 
 
-templates = Jinja2Templates(
+class AppTemplates(Jinja2Templates):
+    def TemplateResponse(self, request, name, context=None, **kwargs):
+        if not hasattr(request.state, "csrf_token"):
+            request.state.csrf_token = ""
+        if not hasattr(request.state, "browser_session"):
+            request.state.browser_session = None
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers.setdefault("Cache-Control", "no-store")
+        kwargs["headers"] = headers
+        return super().TemplateResponse(
+            request=request,
+            name=name,
+            context=context,
+            **kwargs,
+        )
+
+
+templates = AppTemplates(
     directory="app/templates",
 )
 

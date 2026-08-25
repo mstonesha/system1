@@ -42,7 +42,11 @@
     ></script>
 </head>
 
-<body>
+<body
+    {% if request.state.csrf_token %}
+        hx-headers='{"X-CSRF-Token": "{{ request.state.csrf_token }}"}'
+    {% endif %}
+>
 
     <div class="app-shell">
 
@@ -63,6 +67,23 @@
                     {% else %}
                         <span id="current-date"></span>
                     {% endif %}
+
+                    {% if request.state.browser_session %}
+                        <span aria-hidden="true">·</span>
+                        <form
+                            method="post"
+                            action="/logout"
+                            class="logout-form"
+                        >
+                            {% include "partials/csrf_field.html" %}
+                            <button
+                                type="submit"
+                                class="logout-button"
+                            >
+                                Sign out
+                            </button>
+                        </form>
+                    {% endif %}
                 </div>
 
             </div>
@@ -70,6 +91,7 @@
         </header>
 
 
+        {% block primary_nav %}
         <nav
             class="primary-navigation"
             aria-label="Primary navigation"
@@ -97,6 +119,7 @@
             </a>
 
         </nav>
+        {% endblock %}
 
 
         <main class="workspace">
@@ -107,6 +130,7 @@
         </main>
 
 
+        {% block footer %}
         <footer class="app-footer">
 
             <a
@@ -117,6 +141,7 @@
             </a>
 
         </footer>
+        {% endblock %}
 
     </div>
 

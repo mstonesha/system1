@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Form, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.auth.http import require_browser_session
 from app.database import get_db
 from app.models import DailyTask, Task
 from app.services.today import (
@@ -23,6 +24,7 @@ from app.templating import templates
 router = APIRouter(
     prefix="/today",
     tags=["today"],
+    dependencies=[Depends(require_browser_session)],
 )
 
 
