@@ -14,9 +14,10 @@ layer. It is not an implemented production subsystem.
 ## System overview
 
 Current stack: FastAPI, Jinja2, HTMX, PostgreSQL 17, SQLAlchemy 2.x,
-Alembic, Docker Compose, pytest. Uvicorn serves the app. Small
-client-side scripts (`app/static/timer.js`, `app/static/break.js`)
-drive the timer and break countdown.
+Alembic, Docker Compose, pytest. Uvicorn serves the app. Production
+adds Caddy for HTTPS termination. Small client-side scripts
+(`app/static/timer.js`, `app/static/break.js`) drive the timer and
+break countdown.
 
 Approximate flow:
 
@@ -63,10 +64,11 @@ HTML includes a session-bound CSRF token for forms and HTMX.
 `POST /login` has no pre-authentication CSRF token (documented
 under BrowserSession). Sessions are not bound to IP or
 User-Agent. One operator may have several concurrent device
-sessions. Do not expose the application on the public internet.
-Enkrateia_One is not implemented. The HTML UI still does not
-call analytics. Evaluation still calls production analytics
-directly and is unchanged.
+sessions. Production traffic is expected to reach the HTML UI and
+the analysis API through Caddy on ports 80/443. PostgreSQL and
+Uvicorn are not published. Enkrateia_One is not implemented. The
+HTML UI still does not call analytics. Evaluation still calls
+production analytics directly and is unchanged.
 
 ## Domain model
 
@@ -318,9 +320,9 @@ Agents should use a bounded API, not connect to Postgres. The
 internal Python contract for that API exists in `app/analysis/`.
 A local HTTP transport is implemented at `/api/analysis/*` and
 protected with a machine bearer token. That is API authentication
-for trusted callers, not user/browser authentication. It must not
-be treated as public-internet readiness. Enkrateia_One is not
-present as a package, service, or runtime.
+for trusted callers, not user/browser authentication. The first
+VPS design publishes only Caddy; the API is still not anonymous.
+Enkrateia_One is not present as a package, service, or runtime.
 
 ## Data-history philosophy
 
@@ -346,6 +348,21 @@ the current schema:
 - **Planning nulls:** `planned_sessions is NULL` is omitted from
   planned-versus-actual totals.
 
+## Production deployment (repository)
+
+`docker-compose.prod.yml` is a standalone production stack: Caddy,
+web, and PostgreSQL. It is not merged with the development compose
+file. Caddy publishes host ports 80 and 443 and reverse-proxies to
+`web:8000` on a `frontend` network. PostgreSQL is only on
+`backend`. The web container joins both. Uvicorn is not
+published. Production Uvicorn enables `--proxy-headers` because
+only Caddy can reach it. `AKRASIA_COOKIE_SECURE` is forced true.
+
+Operator procedure, secrets, backups, and the SSH/firewall
+checklist live in `docs/deployment.md`. Tailscale is not part of
+this Compose stack. A future private network is intended for SSH
+and admin tools (Hermes, n8n), not for publishing PostgreSQL.
+
 ## Non-goals / current exclusions
 
 Deliberately out of scope for this repository state:
@@ -357,5 +374,6 @@ Deliberately out of scope for this repository state:
 - Multi-user SaaS architecture
 - Production agent memory, embeddings, or tool loops
 - Accounts, roles, OAuth, or password-reset email
-- Production reverse-proxy / HTTPS configuration
-- Backups and recovery automation
+- Actual VPS provisioning, Tailscale installation, Hermes, or n8n
+- Host firewall/SSH hardening from this repository
+- External log drains, cloud backup providers, or secret managers

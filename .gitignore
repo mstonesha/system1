@@ -1,3 +1,6 @@
 .env
+.env.production
+backups/
+*.dump
 evaluation/output/
 evaluation/agent/results/

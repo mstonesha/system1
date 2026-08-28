@@ -35,6 +35,8 @@ Implemented today:
   listed in FastAPI `/docs`)
 - Machine bearer-token authentication for that JSON API
 - Single-operator password login and server-side browser sessions
+- Production Compose, Caddy/HTTPS config, health checks, and
+  backup/restore procedures (VPS not provisioned from this repo)
 - Synthetic evaluation datasets A–F
 - Frozen evidence/prompt contracts and an isolated evaluation runner
 
@@ -70,12 +72,15 @@ not satisfy API auth, and the API token does not log anyone into
 the UI. Authenticated HTML includes a per-session CSRF token for
 forms and HTMX; the raw browser session token is never rendered
 into the page. `POST /login` has no pre-login CSRF token; a
-successful login always issues a fresh session. This application
-is still not ready for public internet exposure.
+successful login always issues a fresh session. Production is
+intended to be publicly reachable over HTTPS behind Caddy; see
+[Deployment](docs/deployment.md). Local HTTP development keeps
+`AKRASIA_COOKIE_SECURE=false`. The first VPS is not created by
+this repository.
 
 Not implemented:
 
-- Production deployment hardening (HTTPS, reverse proxy, backups)
+- Provisioning a real VPS, Tailscale, Hermes, or n8n
 - Multi-user accounts, OAuth, or password-reset email
 - **Enkrateia_One** (the intended future analytical/agent layer)
 - Agent memory, embeddings, or unrestricted database access
@@ -92,7 +97,8 @@ and does not indicate a second application. The Python package is
 - PostgreSQL 17
 - SQLAlchemy 2.x and Alembic
 - Argon2id (`argon2-cffi`) for the operator password hash
-- Docker Compose for local run, tests, and evaluation
+- Docker Compose for local run, tests, evaluation, and production
+- Caddy (production HTTPS reverse proxy)
 - pytest
 - Python 3.13 in the application image
 
@@ -168,7 +174,8 @@ Live model calls require `EVAL_AGENT_API_KEY`, `EVAL_AGENT_BASE_URL`,
 and `EVAL_AGENT_MODEL`. Dry-run builds evidence and renders the prompt
 without calling a provider.
 
-This repository does not document production deployment.
+This repository documents a first-VPS procedure in
+[Deployment](docs/deployment.md). It does not provision a server.
 
 ## Repository map
 
@@ -185,11 +192,14 @@ This repository does not document production deployment.
 | `evaluation/agent/` | Evidence contracts, prompts, model client, runner |
 | `evaluation/scenarios/` | Dataset generators A–F |
 | `evaluation/ground_truth/` | Hidden operator YAML (never sent to the model) |
+| `deploy/` | Production Caddyfile and database backup/restore scripts |
+| `docker-compose.prod.yml` | Standalone production stack (Caddy, web, db) |
 | `tests/` | pytest suite, including analytics and evaluation |
 | `migrations/` | Alembic revisions |
 
 ## Further reading
 
 - [Architecture](docs/architecture.md)
+- [Deployment](docs/deployment.md)
 - [Agent evaluation](docs/evaluation.md)
 - [Development status](docs/development-status.md)

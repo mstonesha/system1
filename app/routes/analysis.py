@@ -4,9 +4,9 @@ These routes call ``app.analysis`` only. They do not interpret
 results, open engines, or write application rows.
 
 Machine clients must send a bearer token configured as
-``AKRASIA_ANALYSIS_API_TOKEN``. The HTML UI is not
-authenticated. The API is still not safe to expose on the
-public internet.
+``AKRASIA_ANALYSIS_API_TOKEN``. Browser cookies do not
+authenticate these routes. The HTML UI uses a separate
+password session.
 """
 
 from datetime import date

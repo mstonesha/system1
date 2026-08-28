@@ -1,0 +1,9 @@
+.git
+.env
+.env.production
+backups/
+evaluation/
+tests/
+**/__pycache__/
+*.pyc
+*.pyo

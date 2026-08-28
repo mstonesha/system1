@@ -1,0 +1,104 @@
+# Production stack for Akrasia_Zero.
+# Standalone: do not merge with docker-compose.yml, which publishes
+# Uvicorn and bind-mounts the working tree.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# Public host ports are Caddy :80 and :443 only.
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    container_name: system1-prod-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AKRASIA_DOMAIN: ${AKRASIA_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - frontend
+    depends_on:
+      web:
+        condition: service_healthy
+
+  web:
+    build: .
+    container_name: system1-prod-web
+    restart: unless-stopped
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--proxy-headers",
+        "--forwarded-allow-ips",
+        "*",
+      ]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      APP_NAME: ${APP_NAME:-Akrasia_Zero}
+      DISPLAY_NAME: ${DISPLAY_NAME:-Matt Stone}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/London}
+      FOCUS_SESSION_MINUTES: ${FOCUS_SESSION_MINUTES:-25}
+      BREAK_DURATION_MINUTES: ${BREAK_DURATION_MINUTES:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AKRASIA_ANALYSIS_API_TOKEN: ${AKRASIA_ANALYSIS_API_TOKEN}
+      AKRASIA_PASSWORD_HASH: ${AKRASIA_PASSWORD_HASH}
+      AKRASIA_COOKIE_SECURE: "true"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  db:
+    image: postgres:17
+    container_name: system1-prod-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  postgres_prod_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,6 @@
+# Site address from AKRASIA_DOMAIN (Compose/container env).
+# A bare hostname enables Caddy automatic HTTPS.
+# Use http://localhost only for local smoke tests so ACME is not contacted.
+{$AKRASIA_DOMAIN} {
+	reverse_proxy web:8000
+}

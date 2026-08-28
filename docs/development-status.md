@@ -40,6 +40,10 @@ the pytest suite:
   mutations. The CSRF token is rendered into authenticated HTML;
   `akrasia_csrf` is an HttpOnly re-render store, not a validator.
   `POST /login` has no pre-auth CSRF token (documented)
+- **Production deployment configuration** — standalone
+  `docker-compose.prod.yml`, Caddy TLS termination, health
+  endpoint, named volume, backup/restore scripts. First VPS is
+  not provisioned from this repository
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -59,8 +63,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **465 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~43s.
+Result (this documentation snapshot): **485 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~45s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -69,11 +73,9 @@ against `system1_test` only.
 
 Consistent with the current code and README direction:
 
-- Production deployment hardening: HTTPS/reverse proxy, secure
-  cookies in production, firewall/network exposure, backups,
-  secret provisioning, first VPS
 - Multi-user accounts, OAuth, password-reset email, MFA
 - Agent memory, embeddings, and tooling
+- Actual VPS provisioning, Tailscale, Hermes, n8n
 - Wider usability and deployment testing
 - Multi-user architecture
 - Packaging for nontechnical users
@@ -87,10 +89,11 @@ Architectural, not an implementation plan for this change:
 3. Read-only analytical HTTP API (done)
 4. Analytical API bearer authentication (done)
 5. Human password/session authentication (done)
-6. Deploy a first personal instance (HTTPS and secret
-   provisioning still outstanding)
-7. Dogfood with real personal data
-8. Evaluate analytics against real usage before expanding agent
+6. Production Compose / Caddy / backup readiness (done;
+   first VPS still operator work)
+7. Deploy a first personal instance
+8. Dogfood with real personal data
+9. Evaluate analytics against real usage before expanding agent
    autonomy
 
 ## Current project boundary

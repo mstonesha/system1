@@ -10,6 +10,7 @@ from app.auth.http import (
 from app.config import get_settings
 from app.logging import configure_logging, log_shutdown, log_startup
 from app.routes.auth import router as auth_router
+from app.routes.health import router as health_router
 from app.routes.sessions import router as sessions_router
 from app.routes.tasks import router as tasks_router
 from app.routes.timer import router as timer_router
@@ -42,6 +43,7 @@ app.mount(
     name="static",
 )
 
+app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(today_router)
