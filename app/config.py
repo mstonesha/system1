@@ -7,6 +7,7 @@ and does not indicate a second application.
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 from sqlalchemy.engine import make_url
 
@@ -103,6 +104,32 @@ def _env_log_level() -> str:
     return value
 
 
+def _database_url_from_postgres_components() -> str | None:
+    user = _optional_env("POSTGRES_USER")
+    password = os.environ.get("POSTGRES_PASSWORD")
+    database = _optional_env("POSTGRES_DB")
+
+    if not user or password is None or password == "" or not database:
+        return None
+
+    host = _optional_env("POSTGRES_HOST") or "db"
+    port = _optional_env("POSTGRES_PORT") or "5432"
+
+    return (
+        "postgresql+psycopg://"
+        f"{quote(user, safe='')}:{quote(password, safe='')}"
+        f"@{host}:{port}/{quote(database, safe='')}"
+    )
+
+
+def _resolve_database_url() -> str | None:
+    explicit = _optional_env("DATABASE_URL")
+    if explicit is not None:
+        return explicit
+
+    return _database_url_from_postgres_components()
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -156,7 +183,7 @@ def get_settings() -> Settings:
             DEFAULT_BREAK_DURATION_MINUTES,
         ),
         log_level=_env_log_level(),
-        database_url=_optional_env("DATABASE_URL"),
+        database_url=_resolve_database_url(),
         analysis_api_token=_optional_env(
             ANALYSIS_API_TOKEN_ENV
         ),

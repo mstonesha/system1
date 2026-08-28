@@ -35,13 +35,16 @@ Required:
 
 - `AKRASIA_DOMAIN` — hostname only, for example `tasks.example.com`
 - `POSTGRES_USER`
-- `POSTGRES_PASSWORD` — URL-safe (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
+- `POSTGRES_PASSWORD` — long random value; `$` can still be expanded
+  by Compose interpolation, so `python -c "import secrets; print(secrets.token_urlsafe(32))"` is a convenient generator
 - `POSTGRES_DB`
 - `AKRASIA_PASSWORD_HASH` — `python -m app.auth.password` (prints the hash only)
 - `AKRASIA_ANALYSIS_API_TOKEN` — `python -c "import secrets; print(secrets.token_urlsafe(48))"`
 
-`docker-compose.prod.yml` constructs `DATABASE_URL` from the
-`POSTGRES_*` values (host `db` on the internal network) and forces
+`docker-compose.prod.yml` passes `POSTGRES_*` into the web
+container (host defaults to `db` on the internal network). The
+application percent-encodes those values into `DATABASE_URL`, so
+the password does not have to be URL-safe. Compose forces
 `AKRASIA_COOKIE_SECURE=true`.
 
 Optional application settings: `APP_NAME`, `DISPLAY_NAME`,

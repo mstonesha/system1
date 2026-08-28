@@ -63,8 +63,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **485 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~45s.
+Result (this documentation snapshot): **488 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~43s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.

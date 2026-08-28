@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy.engine import make_url
 
 from app.config import (
     ANALYSIS_API_TOKEN_ENV,
@@ -125,6 +126,9 @@ def test_blank_analysis_api_token_is_unset(monkeypatch):
 
 def test_database_url_has_no_silent_default(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_USER", raising=False)
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    monkeypatch.delenv("POSTGRES_DB", raising=False)
 
     settings = get_settings()
 
@@ -183,9 +187,54 @@ def test_require_test_database_url_requires_database_url(
     monkeypatch,
 ):
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_USER", raising=False)
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    monkeypatch.delenv("POSTGRES_DB", raising=False)
 
     with pytest.raises(
         RuntimeError,
         match="DATABASE_URL is not set",
     ):
         require_test_database_url()
+
+
+def test_postgres_components_encode_password_in_database_url(
+    monkeypatch,
+):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_USER", "akrasia")
+    monkeypatch.setenv(
+        "POSTGRES_PASSWORD",
+        "p@ss:w/rd#x?",
+    )
+    monkeypatch.setenv("POSTGRES_DB", "akrasia")
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+
+    settings = get_settings()
+    parsed = make_url(settings.database_url)
+
+    assert parsed.username == "akrasia"
+    assert parsed.password == "p@ss:w/rd#x?"
+    assert parsed.host == "db"
+    assert parsed.port == 5432
+    assert parsed.database == "akrasia"
+    assert "@" not in (settings.database_url.split("@", 1)[0])
+    assert parsed.password not in repr(settings)
+
+
+def test_explicit_database_url_wins_over_postgres_components(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://user:pass@localhost:5432/custom",
+    )
+    monkeypatch.setenv("POSTGRES_USER", "akrasia")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "ignored-password")
+    monkeypatch.setenv("POSTGRES_DB", "akrasia")
+
+    settings = get_settings()
+
+    assert settings.database_url == (
+        "postgresql+psycopg://user:pass@localhost:5432/custom"
+    )

@@ -357,6 +357,9 @@ file. Caddy publishes host ports 80 and 443 and reverse-proxies to
 `backend`. The web container joins both. Uvicorn is not
 published. Production Uvicorn enables `--proxy-headers` because
 only Caddy can reach it. `AKRASIA_COOKIE_SECURE` is forced true.
+The web service receives `POSTGRES_*` and percent-encodes them
+into the SQLAlchemy URL; Compose does not embed the raw password
+in `DATABASE_URL`.
 
 Operator procedure, secrets, backups, and the SSH/firewall
 checklist live in `docs/deployment.md`. Tailscale is not part of

@@ -60,6 +60,16 @@ def test_production_forces_secure_cookies():
     assert env["AKRASIA_COOKIE_SECURE"] == "true"
 
 
+def test_production_web_does_not_embed_db_password_in_url():
+    env = _prod()["services"]["web"]["environment"]
+    assert "DATABASE_URL" not in env
+    assert env["POSTGRES_USER"] == "${POSTGRES_USER}"
+    assert env["POSTGRES_PASSWORD"] == "${POSTGRES_PASSWORD}"
+    assert env["POSTGRES_DB"] == "${POSTGRES_DB}"
+    joined = " ".join(str(value) for value in env.values())
+    assert "postgresql+" not in joined
+
+
 def test_production_healthchecks_and_restart_policies():
     services = _prod()["services"]
     for name in ("web", "db", "caddy"):
