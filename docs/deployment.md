@@ -68,6 +68,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.production run --rm we
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
+On a Hostinger VPS that already runs Traefik, do not use this
+Caddy `up`. Use the Hostinger overlay instead.
+
 Then:
 
 1. Confirm `https://$AKRASIA_DOMAIN/health` returns `{"status":"ok"}`
@@ -79,22 +82,42 @@ Migrations are **not** run automatically on web-container start.
 
 ## Update procedure
 
-1. Backup the database (`deploy/backup-db.sh`) and copy the dump off the VPS
+1. Backup the database (`deploy/backup-db.sh`; on Hostinger set
+   `AKRASIA_DEPLOYMENT=hostinger`) and copy the dump off the VPS
 2. `git pull`
 3. `docker compose -f docker-compose.prod.yml --env-file .env.production build web`
 4. `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm web alembic upgrade head`
 5. `docker compose -f docker-compose.prod.yml --env-file .env.production up -d`
 6. Verify `/health`, login, and API auth
 
+On Hostinger, pass `-f docker-compose.hostinger.yml` on the Compose
+commands that start or rebuild services.
+
 ## Backup
 
 ```bash
 chmod +x deploy/backup-db.sh deploy/restore-db.sh
+```
+
+Generic Caddy production:
+
+```bash
 ./deploy/backup-db.sh
+```
+
+Hostinger (existing Traefik):
+
+```bash
+AKRASIA_DEPLOYMENT=hostinger ./deploy/backup-db.sh
 ```
 
 Writes `backups/akrasia-YYYYMMDDTHHMMSSZ.dump` (custom-format
 `pg_dump`). Override with `BACKUP_DIR` and `ENV_FILE` if needed.
+`.env.production` remains the default env file. Hostinger backups
+must set `AKRASIA_DEPLOYMENT=hostinger` so Compose includes
+`docker-compose.hostinger.yml` and targets the same running `db`
+as the Traefik stack.
+
 The script runs `pg_dump` inside the `db` container so the
 password is not placed on the host command line.
 
@@ -112,26 +135,78 @@ Cron/systemd scheduling is not configured here.
 ## Restore
 
 Stop is handled by the helper (it stops `web`, restores, starts
-`web`):
+`web` with the same Compose files used at deploy; `start`, not
+`up`, so the web container is not recreated):
+
+Generic Caddy production:
 
 ```bash
 ./deploy/restore-db.sh backups/akrasia-YYYYMMDDTHHMMSSZ.dump
 ```
+
+Hostinger (existing Traefik):
+
+```bash
+AKRASIA_DEPLOYMENT=hostinger ./deploy/restore-db.sh backups/akrasia-YYYYMMDDTHHMMSSZ.dump
+```
+
+On Hostinger, omitting `AKRASIA_DEPLOYMENT=hostinger` would use
+only `docker-compose.prod.yml` and could drop Traefik labels or
+start Caddy. Always pass the Hostinger mode.
 
 This overwrites the production database. Restore was verified
 automatically against an isolated `system1_restore_verify`
 database in the test suite, not against development or production
 data.
 
+## Hostinger (existing Traefik)
+
+Hostinger’s Traefik project already owns host ports 80 and 443.
+Caddy must not run on this machine; a second proxy on those ports
+would fail to bind and would fight the existing installation.
+
+Launch Akrasia with the Hostinger overlay (Caddy omitted, web and
+db unpublished, Traefik labels on `web`):
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.hostinger.yml --env-file .env.production up -d db
+docker compose -f docker-compose.prod.yml -f docker-compose.hostinger.yml --env-file .env.production run --rm web alembic upgrade head
+docker compose -f docker-compose.prod.yml -f docker-compose.hostinger.yml --env-file .env.production up -d
+```
+
+Labels follow the same Traefik Docker pattern as Hermes:
+enable the container, `Host()` on `AKRASIA_DOMAIN`, entrypoint
+`websecure`, certresolver `letsencrypt`, and container port
+`8000`, on the external `traefik-proxy` network. PostgreSQL stays
+on `backend` only. `AKRASIA_COOKIE_SECURE` remains forced true.
+
+Backup and restore use the same Compose files as launch. Generic
+commands stay the default; Hostinger commands set
+`AKRASIA_DEPLOYMENT=hostinger`:
+
+```bash
+AKRASIA_DEPLOYMENT=hostinger ./deploy/backup-db.sh
+AKRASIA_DEPLOYMENT=hostinger ./deploy/restore-db.sh backups/akrasia-YYYYMMDDTHHMMSSZ.dump
+```
+
+Do not add Hermes or n8n to this Compose project. Do not edit
+`/docker/traefik` or `/docker/hermes-agent-*` from this
+repository.
+
 ## Network
 
-Public:
+Public (generic Caddy stack):
 
 - Caddy `80` / `443` only
 
+Public (Hostinger overlay):
+
+- Hostinger Traefik `80` / `443` only; Akrasia publishes no host ports
+
 Docker-internal:
 
-- `frontend` network: Caddy → `web:8000`
+- `frontend` network: Caddy → `web:8000` (generic stack)
+- `traefik-proxy` network: Hostinger Traefik → `web:8000`
 - `backend` network: `web` → PostgreSQL
 - PostgreSQL is not published
 - Uvicorn is not published
@@ -181,7 +256,11 @@ not required to validate this milestone.
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production.example config
+docker compose -f docker-compose.prod.yml -f docker-compose.hostinger.yml --env-file .env.production.example config
 ```
+
+The Hostinger render must not publish host ports for `web` or
+`db`, and must not start Caddy.
 
 Do not merge `docker-compose.yml` with the production file.
 Development Compose publishes Uvicorn `:8000` and bind-mounts the

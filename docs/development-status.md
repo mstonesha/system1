@@ -41,9 +41,10 @@ the pytest suite:
   `akrasia_csrf` is an HttpOnly re-render store, not a validator.
   `POST /login` has no pre-auth CSRF token (documented)
 - **Production deployment configuration** — standalone
-  `docker-compose.prod.yml`, Caddy TLS termination, health
-  endpoint, named volume, backup/restore scripts. First VPS is
-  not provisioned from this repository
+  `docker-compose.prod.yml`, Caddy TLS termination, Hostinger
+  Traefik overlay (Caddy disabled; existing Traefik owns 80/443),
+  health endpoint, named volume, backup/restore scripts. First VPS
+  is not provisioned from this repository
 - **Synthetic datasets A–F** — `temporal_patterns`,
   `interruptions_dependencies`, `task_age_abandonment`,
   `planning_workload`, `behaviour_change`, `noise_control`
@@ -63,8 +64,8 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **488 passed**, 1 warning
-(Starlette `httpx` TestClient deprecation), ~43s.
+Result (this documentation snapshot): **490 passed**, 1 warning
+(Starlette `httpx` TestClient deprecation), ~46s.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -90,7 +91,7 @@ Architectural, not an implementation plan for this change:
 4. Analytical API bearer authentication (done)
 5. Human password/session authentication (done)
 6. Production Compose / Caddy / backup readiness (done;
-   first VPS still operator work)
+   Hostinger Traefik overlay added; first VPS still operator work)
 7. Deploy a first personal instance
 8. Dogfood with real personal data
 9. Evaluate analytics against real usage before expanding agent

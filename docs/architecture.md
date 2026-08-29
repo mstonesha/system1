@@ -15,7 +15,9 @@ layer. It is not an implemented production subsystem.
 
 Current stack: FastAPI, Jinja2, HTMX, PostgreSQL 17, SQLAlchemy 2.x,
 Alembic, Docker Compose, pytest. Uvicorn serves the app. Production
-adds Caddy for HTTPS termination. Small client-side scripts
+adds Caddy for HTTPS termination. On Hostinger, an overlay omits
+Caddy and routes through the host’s existing Traefik instead. Small
+client-side scripts
 (`app/static/timer.js`, `app/static/break.js`) drive the timer and
 break countdown.
 
@@ -65,7 +67,8 @@ HTML includes a session-bound CSRF token for forms and HTMX.
 under BrowserSession). Sessions are not bound to IP or
 User-Agent. One operator may have several concurrent device
 sessions. Production traffic is expected to reach the HTML UI and
-the analysis API through Caddy on ports 80/443. PostgreSQL and
+the analysis API through Caddy or Hostinger Traefik on ports
+80/443. PostgreSQL and
 Uvicorn are not published. Enkrateia_One is not implemented. The
 HTML UI still does not call analytics. Evaluation still calls
 production analytics directly and is unchanged.
@@ -321,7 +324,8 @@ internal Python contract for that API exists in `app/analysis/`.
 A local HTTP transport is implemented at `/api/analysis/*` and
 protected with a machine bearer token. That is API authentication
 for trusted callers, not user/browser authentication. The first
-VPS design publishes only Caddy; the API is still not anonymous.
+VPS design publishes only the reverse proxy (Caddy, or Hostinger
+Traefik); the API is still not anonymous.
 Enkrateia_One is not present as a package, service, or runtime.
 
 ## Data-history philosophy
@@ -356,10 +360,17 @@ file. Caddy publishes host ports 80 and 443 and reverse-proxies to
 `web:8000` on a `frontend` network. PostgreSQL is only on
 `backend`. The web container joins both. Uvicorn is not
 published. Production Uvicorn enables `--proxy-headers` because
-only Caddy can reach it. `AKRASIA_COOKIE_SECURE` is forced true.
-The web service receives `POSTGRES_*` and percent-encodes them
-into the SQLAlchemy URL; Compose does not embed the raw password
-in `DATABASE_URL`.
+only the reverse proxy can reach it. `AKRASIA_COOKIE_SECURE` is
+forced true. The web service receives `POSTGRES_*` and
+percent-encodes them into the SQLAlchemy URL; Compose does not
+embed the raw password in `DATABASE_URL`.
+
+On a Hostinger host where Traefik already owns 80/443,
+`docker-compose.hostinger.yml` is an overlay: Caddy is disabled,
+`web` and `db` stay unpublished, and Traefik Docker labels expose
+Akrasia on `AKRASIA_DOMAIN` via entrypoint `websecure`,
+certresolver `letsencrypt`, and container port 8000. Hermes and
+n8n stay in their own Compose projects.
 
 Operator procedure, secrets, backups, and the SSH/firewall
 checklist live in `docs/deployment.md`. Tailscale is not part of

@@ -35,8 +35,9 @@ Implemented today:
   listed in FastAPI `/docs`)
 - Machine bearer-token authentication for that JSON API
 - Single-operator password login and server-side browser sessions
-- Production Compose, Caddy/HTTPS config, health checks, and
-  backup/restore procedures (VPS not provisioned from this repo)
+- Production Compose, Caddy/HTTPS config, an optional Hostinger
+  Traefik overlay, health checks, and backup/restore procedures
+  (VPS not provisioned from this repo)
 - Synthetic evaluation datasets A–F
 - Frozen evidence/prompt contracts and an isolated evaluation runner
 
@@ -73,10 +74,10 @@ the UI. Authenticated HTML includes a per-session CSRF token for
 forms and HTMX; the raw browser session token is never rendered
 into the page. `POST /login` has no pre-login CSRF token; a
 successful login always issues a fresh session. Production is
-intended to be publicly reachable over HTTPS behind Caddy; see
-[Deployment](docs/deployment.md). Local HTTP development keeps
-`AKRASIA_COOKIE_SECURE=false`. The first VPS is not created by
-this repository.
+intended to be publicly reachable over HTTPS behind Caddy or
+Hostinger Traefik; see [Deployment](docs/deployment.md). Local HTTP
+development keeps `AKRASIA_COOKIE_SECURE=false`. The first VPS is
+not created by this repository.
 
 Not implemented:
 
@@ -98,7 +99,8 @@ and does not indicate a second application. The Python package is
 - SQLAlchemy 2.x and Alembic
 - Argon2id (`argon2-cffi`) for the operator password hash
 - Docker Compose for local run, tests, evaluation, and production
-- Caddy (production HTTPS reverse proxy)
+- Caddy (production HTTPS reverse proxy; generic portable stack)
+- Hostinger Traefik overlay (when Traefik already owns 80/443)
 - pytest
 - Python 3.13 in the application image
 
@@ -194,6 +196,7 @@ This repository documents a first-VPS procedure in
 | `evaluation/ground_truth/` | Hidden operator YAML (never sent to the model) |
 | `deploy/` | Production Caddyfile and database backup/restore scripts |
 | `docker-compose.prod.yml` | Standalone production stack (Caddy, web, db) |
+| `docker-compose.hostinger.yml` | Overlay: disable Caddy, route `web` via existing Traefik |
 | `tests/` | pytest suite, including analytics and evaluation |
 | `migrations/` | Alembic revisions |
 

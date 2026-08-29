@@ -1,0 +1,31 @@
+# Hostinger overlay for docker-compose.prod.yml.
+# Traefik on this host already binds 80/443, so Caddy must not run.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.hostinger.yml --env-file .env.production up -d
+#
+# Do not merge with docker-compose.yml. Keep this project to Akrasia
+# services only.
+
+services:
+  caddy:
+    profiles:
+      - caddy
+    ports: []
+
+  web:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - "traefik.http.routers.akrasia.rule=Host(`${AKRASIA_DOMAIN}`)"
+      - traefik.http.routers.akrasia.entrypoints=websecure
+      - traefik.http.routers.akrasia.tls.certresolver=letsencrypt
+      - traefik.http.services.akrasia.loadbalancer.server.port=8000
+    networks:
+      - frontend
+      - backend
+      - traefik-proxy
+
+networks:
+  traefik-proxy:
+    name: traefik-proxy
+    external: true

@@ -2,6 +2,8 @@
 # Restore a custom-format pg_dump into the production database.
 # Destructive. Stops the web service, restores, then starts web.
 # Usage: deploy/restore-db.sh backups/akrasia-YYYYMMDDTHHMMSSZ.dump
+# Hostinger: AKRASIA_DEPLOYMENT=hostinger deploy/restore-db.sh <dump>
+# Uses start, not up, so the existing web container is not recreated.
 set -eu
 
 if [ "${1:-}" = "" ]; then
@@ -11,6 +13,9 @@ fi
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$REPO_ROOT"
+
+# shellcheck disable=SC1091
+. "$REPO_ROOT/deploy/prod-compose.sh"
 
 dump=$1
 case "$dump" in
@@ -22,9 +27,6 @@ if [ ! -s "$dump" ]; then
     echo "missing or empty dump: $dump" >&2
     exit 1
 fi
-
-ENV_FILE=${ENV_FILE:-.env.production}
-COMPOSE="docker compose -f docker-compose.prod.yml --env-file ${ENV_FILE}"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "missing env file: $ENV_FILE" >&2

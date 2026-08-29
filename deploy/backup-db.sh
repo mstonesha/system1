@@ -1,14 +1,17 @@
 #!/bin/sh
 # Logical PostgreSQL backup for the production Compose stack.
 # Run from the repository root on the VPS. Does not print credentials.
+# Generic:  ./deploy/backup-db.sh
+# Hostinger: AKRASIA_DEPLOYMENT=hostinger ./deploy/backup-db.sh
 set -eu
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$REPO_ROOT"
 
-ENV_FILE=${ENV_FILE:-.env.production}
+# shellcheck disable=SC1091
+. "$REPO_ROOT/deploy/prod-compose.sh"
+
 BACKUP_DIR=${BACKUP_DIR:-"$REPO_ROOT/backups"}
-COMPOSE="docker compose -f docker-compose.prod.yml --env-file ${ENV_FILE}"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "missing env file: $ENV_FILE" >&2
