@@ -1,3 +1,4 @@
+import re
 from urllib.parse import parse_qs, urlparse
 
 from app.config import get_settings
@@ -122,6 +123,27 @@ def test_application_shell_uses_configured_names(
 
     timer = client.get("/timer/")
     assert "Session Timer | FocusLab" in timer.text
+
+
+def _primary_nav_tab_class(html: str, href: str) -> str:
+    match = re.search(
+        rf'<a\s+href="{re.escape(href)}"\s+class="(nav-tab[^"]*)"',
+        html,
+    )
+    assert match is not None, f"nav tab {href} not found"
+    return match.group(1)
+
+
+def test_task_list_marks_task_list_nav_active_not_sessions(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+
+    task_list = _primary_nav_tab_class(response.text, "/")
+    sessions = _primary_nav_tab_class(response.text, "/timer/")
+
+    assert "active" in task_list.split()
+    assert "active" not in sessions.split()
 
 
 def _plan_today_task(db, make_task, title="Focus"):
