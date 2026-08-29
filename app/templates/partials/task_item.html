@@ -10,6 +10,118 @@
 
         <div class="task-row-main">
 
+            <div class="task-identity">
+
+                <span
+                    id="task-title-{{ task.id }}"
+                    class="
+                        task-title
+                        {% if task.status == 'completed' %}
+                            task-completed
+                        {% endif %}
+                        {% if task.status == 'cancelled' %}
+                            task-cancelled
+                        {% endif %}
+                    "
+                >
+                    {{ task.title }}
+                </span>
+
+                {% if task.status == "completed" %}
+
+                    <span class="task-status">
+                        Completed
+                    </span>
+
+                {% elif task.status == "cancelled" %}
+
+                    <span class="task-status">
+                        Cancelled
+                    </span>
+
+                {% endif %}
+
+                {% if task.status == "active" %}
+
+                    <button
+                        type="button"
+                        class="subtask-toggle"
+                        title="Add a subtask"
+                        aria-label="Add subtask to {{ task.title }}"
+                        onclick="
+                            const form =
+                                document.getElementById(
+                                    'subtask-form-{{ task.id }}'
+                                );
+
+                            form.hidden = !form.hidden;
+
+                            if (!form.hidden) {
+                                form.querySelector(
+                                    'input[name=title]'
+                                ).focus();
+                            }
+                        "
+                    >
+                        + Add subtask
+                    </button>
+
+                {% endif %}
+
+                <form
+                    id="edit-form-{{ task.id }}"
+                    class="task-inline-edit"
+                    hidden
+                    hx-post="/tasks/{{ task.id }}/edit"
+                    hx-target="#task-list"
+                    hx-swap="innerHTML"
+                    hx-include="#show-inactive"
+                >
+
+                    {% include "partials/csrf_field.html" %}
+
+                    <input
+                        type="text"
+                        name="title"
+                        value="{{ task.title }}"
+                        autocomplete="off"
+                        required
+                        maxlength="200"
+                    >
+
+                    <button
+                        type="submit"
+                        class="primary"
+                    >
+                        Confirm
+                    </button>
+
+                    <button
+                        type="button"
+                        onclick="
+                            const title =
+                                document.getElementById(
+                                    'task-title-{{ task.id }}'
+                                );
+
+                            const form =
+                                document.getElementById(
+                                    'edit-form-{{ task.id }}'
+                                );
+
+                            form.reset();
+                            form.hidden = true;
+                            title.hidden = false;
+                        "
+                    >
+                        Cancel
+                    </button>
+
+                </form>
+
+            </div>
+
+
             <div
                 class="task-action-group"
                 aria-label="Actions for {{ task.title }}"
@@ -37,7 +149,7 @@
                             completeBox.hidden = !completeBox.hidden;
                         "
                     >
-                        ✓
+                        <span aria-hidden="true">✓</span>
                     </button>
 
 
@@ -61,10 +173,12 @@
                             cancelBox.hidden = !cancelBox.hidden;
                         "
                     >
-                        ×
+                        <span aria-hidden="true">×</span>
+                    </button>
+
                     <button
                         type="button"
-                        class="task-icon-button"
+                        class="task-icon-button task-edit-button"
                         title="Edit task"
                         aria-label="Edit {{ task.title }}"
                         onclick="
@@ -86,7 +200,8 @@
                             ).focus();
                         "
                     >
-                        ✎
+                        <span aria-hidden="true">✎</span>
+                        Edit
                     </button>
 
                 {% else %}
@@ -94,6 +209,8 @@
                     <button
                         type="button"
                         class="task-reopen-button"
+                        title="Reopen task"
+                        aria-label="Reopen {{ task.title }}"
                         hx-post="/tasks/{{ task.id }}/reopen"
                         hx-target="#task-list"
                         hx-swap="innerHTML"
@@ -106,100 +223,7 @@
 
             </div>
 
-
-            <span
-                id="task-title-{{ task.id }}"
-                class="
-                    task-title
-                    {% if task.status == 'completed' %}
-                        task-completed
-                    {% endif %}
-                    {% if task.status == 'cancelled' %}
-                        task-cancelled
-                    {% endif %}
-                "
-            >
-                {{ task.title }}
-            </span>
-
-            <form
-                id="edit-form-{{ task.id }}"
-                class="task-inline-edit"
-                hidden
-                hx-post="/tasks/{{ task.id }}/edit"
-                hx-target="#task-list"
-                hx-swap="innerHTML"
-                hx-include="#show-inactive"
-            >
-
-                {% include "partials/csrf_field.html" %}
-
-                <input
-                    type="text"
-                    name="title"
-                    value="{{ task.title }}"
-                    autocomplete="off"
-                    required
-                    maxlength="200"
-                >
-
-                <button
-                    type="submit"
-                    class="primary"
-                >
-                    Confirm
-                </button>
-
-                <button
-                    type="button"
-                    onclick="
-                        const title =
-                            document.getElementById(
-                                'task-title-{{ task.id }}'
-                            );
-
-                        const form =
-                            document.getElementById(
-                                'edit-form-{{ task.id }}'
-                            );
-
-                        form.reset();
-                        form.hidden = true;
-                        title.hidden = false;
-                    "
-                >
-                    Cancel
-                </button>
-
-            </form>
-
         </div>
-
-
-        {% if task.status == "active" %}
-
-            <button
-                type="button"
-                class="subtask-toggle"
-                onclick="
-                    const form =
-                        document.getElementById(
-                            'subtask-form-{{ task.id }}'
-                        );
-
-                    form.hidden = !form.hidden;
-
-                    if (!form.hidden) {
-                        form.querySelector(
-                            'input[name=title]'
-                        ).focus();
-                    }
-                "
-            >
-                + Add subtask
-            </button>
-
-        {% endif %}
 
     </div>
 

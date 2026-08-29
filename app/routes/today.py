@@ -4,6 +4,7 @@ from fastapi import APIRouter, Form, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth.http import require_browser_session
+from app.config import get_settings
 from app.database import get_db
 from app.models import DailyTask, Task
 from app.services.today import (
@@ -11,6 +12,7 @@ from app.services.today import (
     get_carry_forward_candidates,
     get_daily_tasks_for_date,
     move_daily_task,
+    plan_display_totals,
     remove_task_from_day,
     update_planned_sessions,
 )
@@ -186,6 +188,17 @@ def today_page(
         for task in root_tasks
     ]
 
+    settings = get_settings()
+    plan_totals = plan_display_totals(
+        daily_tasks,
+        focus_session_minutes=(
+            settings.focus_session_minutes
+        ),
+        break_duration_minutes=(
+            settings.break_duration_minutes
+        ),
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="today.html",
@@ -199,6 +212,7 @@ def today_page(
             "planned_by_task_id": planned_by_task_id,
             "carry_forward_by_task_id":
                 carry_forward_by_task_id,
+            "plan_totals": plan_totals,
         },
     )
 

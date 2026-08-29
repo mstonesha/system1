@@ -74,6 +74,7 @@ select {
         var(--content-width)
     );
 
+    min-width: 0;
     min-height: 100vh;
     margin: 0 auto;
 
@@ -134,7 +135,7 @@ select {
 
 .primary-navigation {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 
     gap: var(--space-sm);
 
@@ -148,6 +149,9 @@ select {
 
     min-height: 3.25rem;
     padding: 0.75rem 1rem;
+
+    text-align: center;
+    overflow-wrap: break-word;
 
     border: 1px solid var(--border-strong);
     border-bottom: none;
@@ -193,6 +197,7 @@ select {
 
     flex: 1;
 
+    min-width: 0;
     min-height: 520px;
     padding: var(--space-xl);
 
@@ -313,7 +318,10 @@ textarea {
 
 .task-inline-edit {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
+
+    max-width: 100%;
 
     gap: 0.4rem;
 }
@@ -323,7 +331,7 @@ textarea {
 }
 
 .task-inline-edit input {
-    width: min(24rem, 50vw);
+    width: min(24rem, 100%);
 
     padding: 0.3rem 0.5rem;
 }
@@ -460,10 +468,11 @@ button[type="submit"].primary:hover {
     margin: 0;
 
     font-size: 1.65rem;
+    overflow-wrap: break-word;
 }
 
 .today-selected-date {
-    margin-top: 0.2rem;
+    margin-bottom: 0.25rem;
 
     color: var(--color-gray);
 
@@ -476,6 +485,7 @@ button[type="submit"].primary:hover {
 
 .date-navigation {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
 
     gap: 0.2rem;
@@ -539,6 +549,7 @@ button[type="submit"].primary:hover {
 
 .today-pane-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
 
@@ -574,6 +585,31 @@ button[type="submit"].primary:hover {
     color: var(--color-gray);
 
     font-size: 0.74rem;
+}
+
+.today-plan-summary {
+    margin: 0 0 var(--space-md);
+}
+
+.today-plan-summary p {
+    margin: 0;
+}
+
+.today-plan-summary-focus {
+    color: var(--color-midnight-blue);
+
+    font-size: 0.88rem;
+    font-weight: 600;
+
+    overflow-wrap: break-word;
+}
+
+.today-plan-summary-breaks {
+    margin-top: 0.2rem;
+
+    color: var(--color-gray);
+
+    font-size: 0.78rem;
 }
 
 
@@ -693,7 +729,7 @@ button[type="submit"].primary:hover {
     font-weight: 600;
     line-height: 1.35;
 
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
 
@@ -748,74 +784,6 @@ button[type="submit"].primary:hover {
     background: var(--color-maroon);
 
     color: var(--color-antique-white);
-}
-
-
-/* Responsive */
-
-@media (max-width: 900px) {
-
-    .today-page-header {
-        align-items: flex-start;
-        flex-direction: column;
-
-        gap: var(--space-md);
-    }
-
-    .today-workspace {
-        grid-template-columns: 1fr;
-    }
-
-    .today-pane {
-        max-height: none;
-
-        overflow-y: visible;
-    }
-
-}
-
-@media (max-width: 600px) {
-
-    .date-navigation {
-        width: 100%;
-
-        justify-content: space-between;
-    }
-
-    .today-pane {
-        padding: var(--space-md);
-    }
-
-    .today-pane-header {
-        margin:
-            calc(var(--space-md) * -1)
-            calc(var(--space-md) * -1)
-            var(--space-md);
-
-        padding: var(--space-md);
-    }
-
-    .today-queue-item {
-        grid-template-columns:
-            auto
-            minmax(0, 1fr);
-    }
-
-    .queue-session-form {
-        grid-column: 2;
-
-        grid-template-columns:
-            auto
-            3rem
-            auto;
-
-        justify-content: start;
-    }
-
-    .carry-forward-marker {
-        display: none;
-    }
-
 }
 
 
@@ -988,6 +956,8 @@ button[type="submit"].primary:hover {
 
     align-items: center;
 
+    min-width: 0;
+
     gap: var(--space-md);
 
     min-height: 3.5rem;
@@ -1010,6 +980,19 @@ button[type="submit"].primary:hover {
     align-items: center;
 
     gap: 0.1rem;
+}
+
+.queue-position {
+    min-width: 1.35rem;
+    margin-right: 0.35rem;
+
+    color: var(--color-maroon);
+
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
 }
 
 .queue-order-controls form {
@@ -1045,13 +1028,33 @@ button[type="submit"].primary:hover {
     cursor: default;
 }
 
+.queue-task-copy {
+    min-width: 10rem;
+}
+
 .queue-task-title {
     min-width: 0;
 
     font-size: 0.93rem;
     font-weight: 600;
 
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+}
+
+.task-ancestry {
+    color: var(--color-gray);
+
+    font-weight: 500;
+}
+
+.queue-task-effort {
+    margin: 0.15rem 0 0;
+
+    color: var(--color-gray);
+
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.3;
 }
 
 
@@ -1062,6 +1065,7 @@ button[type="submit"].primary:hover {
 .queue-session-form {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
 
     gap: 0.45rem;
 
@@ -1127,7 +1131,7 @@ button[type="submit"].primary:hover {
    Responsive Today
 -------------------------------------------------- */
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
 
     .today-page-header {
         align-items: flex-start;
@@ -1144,6 +1148,32 @@ button[type="submit"].primary:hover {
         max-height: none;
 
         overflow-y: visible;
+    }
+
+}
+
+
+@media (max-width: 720px) {
+
+    .today-queue-item {
+        grid-template-columns:
+            auto
+            minmax(10rem, 1fr);
+
+        align-items: start;
+
+        gap: var(--space-sm);
+    }
+
+    .queue-session-form {
+        grid-column: 2;
+
+        justify-content: flex-start;
+    }
+
+    .today-tree-children {
+        margin-left: 0.75rem;
+        padding-left: 1.1rem;
     }
 
 }
@@ -1173,7 +1203,7 @@ button[type="submit"].primary:hover {
     .today-queue-item {
         grid-template-columns:
             auto
-            minmax(0, 1fr);
+            minmax(10rem, 1fr);
 
         gap: var(--space-sm);
     }
@@ -1279,6 +1309,7 @@ button[type="submit"].primary:hover {
 
     gap: var(--space-lg);
 
+    min-width: 0;
     min-height: 2.9rem;
 
     margin: 0;
@@ -1286,11 +1317,24 @@ button[type="submit"].primary:hover {
 
 .task-row-main {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
 
+    flex: 1;
     min-width: 0;
 
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
+}
+
+.task-identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+
+    flex: 1 1 12rem;
+    min-width: 0;
+
+    gap: 0.45rem 0.75rem;
 }
 
 .task-title {
@@ -1304,6 +1348,15 @@ button[type="submit"].primary:hover {
     overflow-wrap: anywhere;
 }
 
+.task-status {
+    flex: 0 0 auto;
+
+    color: var(--color-gray);
+
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
 
 /* --------------------------------------------------
    Compact task actions
@@ -1311,18 +1364,25 @@ button[type="submit"].primary:hover {
 
 .task-action-group {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
 
     flex: 0 0 auto;
+    margin-left: auto;
 
-    gap: 0.2rem;
+    gap: 0.15rem;
 }
 
 .task-icon-button {
-    width: 1.75rem;
-    min-width: 1.75rem;
-    height: 1.75rem;
-    min-height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 2.25rem;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    min-height: 2.25rem;
 
     padding: 0;
 
@@ -1333,9 +1393,22 @@ button[type="submit"].primary:hover {
     color: var(--color-gray);
 
     font-size: 0.95rem;
-    font-weight: 600;
+    font-weight: 500;
 
     line-height: 1;
+}
+
+.task-edit-button {
+    width: auto;
+    min-width: 2.25rem;
+
+    padding: 0 0.5rem;
+
+    gap: 0.28rem;
+
+    font-size: 0.78rem;
+
+    white-space: nowrap;
 }
 
 .task-icon-button:hover {
@@ -1383,17 +1456,18 @@ button[type="submit"].primary:hover {
 
 .task-confirmation {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
 
     gap: 0.5rem;
 
-    width: fit-content;
+    max-width: 100%;
 
     margin:
         0.15rem
         0
         0.55rem
-        5.55rem;
+        0;
 
     padding:
         0.55rem
@@ -1416,6 +1490,10 @@ button[type="submit"].primary:hover {
 
 .task-confirmation-question {
     margin-right: 0.25rem;
+
+    min-width: 0;
+
+    overflow-wrap: break-word;
 }
 
 .task-confirmation button {
@@ -1451,15 +1529,17 @@ button[type="submit"].primary:hover {
 }
 
 .subtask-form {
+    max-width: 100%;
+
     margin:
         0.2rem
         0
         0.65rem
-        5.55rem;
+        0;
 }
 
 .subtask-form input {
-    width: min(28rem, 65vw);
+    width: min(28rem, 100%);
 }
 
 
@@ -1484,7 +1564,7 @@ button[type="submit"].primary:hover {
 }
 
 .new-task-form input {
-    width: min(32rem, 70vw);
+    width: min(32rem, 100%);
 }
 
 
@@ -1523,7 +1603,7 @@ button[type="submit"].primary:hover {
    Responsive Task List
 -------------------------------------------------- */
 
-@media (max-width: 760px) {
+@media (max-width: 720px) {
 
     .task-list-header {
         align-items: flex-start;
@@ -1542,6 +1622,14 @@ button[type="submit"].primary:hover {
         align-items: flex-start;
     }
 
+    .task-identity {
+        flex: 1 1 100%;
+    }
+
+    .task-action-group {
+        margin-left: 0;
+    }
+
     .task-children {
         margin-left: 0.75rem;
         padding-left: 1.2rem;
@@ -1558,17 +1646,20 @@ button[type="submit"].primary:hover {
 
     .task-confirmation,
     .subtask-form {
-        margin-left: 2.5rem;
+        margin-left: 0;
+        max-width: 100%;
     }
 
     .subtask-form,
-    .new-task-form {
+    .new-task-form,
+    .task-inline-edit {
         align-items: stretch;
         flex-direction: column;
     }
 
     .subtask-form input,
-    .new-task-form input {
+    .new-task-form input,
+    .task-inline-edit input {
         width: 100%;
     }
 }
@@ -1595,7 +1686,7 @@ button[type="submit"].primary:hover {
    Responsive
 -------------------------------------------------- */
 
-@media (max-width: 760px) {
+@media (max-width: 720px) {
 
     .app-shell {
         width: min(
@@ -1679,6 +1770,23 @@ button[type="submit"].primary:hover {
     text-transform: uppercase;
 }
 
+.focus-task-ancestry {
+    max-width: 36rem;
+
+    margin:
+        0
+        auto
+        0.35rem;
+
+    color: var(--color-gray);
+
+    font-size: 0.88rem;
+    font-weight: 500;
+    line-height: 1.35;
+
+    overflow-wrap: break-word;
+}
+
 .focus-task-title {
     max-width: 36rem;
 
@@ -1692,6 +1800,8 @@ button[type="submit"].primary:hover {
     font-weight: 600;
 
     line-height: 1.2;
+
+    overflow-wrap: break-word;
 }
 
 .focus-session-number {
@@ -1865,6 +1975,7 @@ button[type="submit"].primary:hover {
 
 .session-timing-summary {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
 
     gap: var(--space-xl);
@@ -1988,6 +2099,7 @@ button[type="submit"].primary:hover {
 
 .session-note-header {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
 
     gap: var(--space-md);
@@ -2059,7 +2171,7 @@ button[type="submit"].primary:hover {
 
 /* Mobile */
 
-@media (max-width: 650px) {
+@media (max-width: 720px) {
 
     .focus-instrument {
         padding:
@@ -2087,6 +2199,86 @@ button[type="submit"].primary:hover {
         gap: 0.4rem;
     }
 
+    .session-timing-summary {
+        gap: var(--space-md);
+    }
+
+}
+
+
+/* --------------------------------------------------
+   Review
+-------------------------------------------------- */
+
+.review-page {
+    min-width: 0;
+}
+
+.review-page h2,
+.review-page h3 {
+    overflow-wrap: break-word;
+}
+
+.daily-summary {
+    display: grid;
+
+    grid-template-columns:
+        repeat(auto-fit, minmax(8.5rem, 1fr));
+
+    gap: var(--space-md) var(--space-lg);
+
+    margin: 0 0 var(--space-xl);
+}
+
+.daily-summary div {
+    margin: 0;
+}
+
+.daily-summary dt {
+    color: var(--color-gray);
+
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.daily-summary dd {
+    margin: 0.2rem 0 0;
+
+    font-weight: 600;
+}
+
+.table-scroll {
+    overflow-x: auto;
+
+    max-width: 100%;
+
+    margin-bottom: var(--space-lg);
+}
+
+.table-scroll table {
+    width: 100%;
+    min-width: 40rem;
+
+    border-collapse: collapse;
+}
+
+.table-scroll th,
+.table-scroll td {
+    padding: 0.4rem 0.65rem;
+
+    text-align: left;
+    vertical-align: top;
+}
+
+.table-scroll th:first-child,
+.table-scroll td:first-child {
+    min-width: 8rem;
+
+    overflow-wrap: break-word;
+}
+
+.table-scroll td:last-child {
+    overflow-wrap: break-word;
 }
 
 

@@ -6,7 +6,7 @@ Review | {{ settings.app_name }}
 
 {% block content %}
 
-<section>
+<section class="review-page">
 
     <h2>Review</h2>
 
@@ -14,16 +14,25 @@ Review | {{ settings.app_name }}
         {{ selected_date.strftime("%A %d %B %Y") }}
     </h3>
 
-    <nav class="date-navigation">
-    <a href="/review/?target_date={{ previous_date }}">
+    <nav class="date-navigation" aria-label="Date navigation">
+    <a
+        class="date-nav-link"
+        href="/review/?target_date={{ previous_date }}"
+    >
         ← Previous
     </a>
 
-    <a href="/review/">
+    <a
+        class="date-nav-link"
+        href="/review/"
+    >
         Today
     </a>
 
-    <a href="/review/?target_date={{ next_date }}">
+    <a
+        class="date-nav-link"
+        href="/review/?target_date={{ next_date }}"
+    >
         Next →
     </a>
 </nav>
@@ -94,6 +103,7 @@ Review | {{ settings.app_name }}
 
 {% if task_performance %}
 
+    <div class="table-scroll">
     <table>
 
         <thead>
@@ -160,6 +170,7 @@ Review | {{ settings.app_name }}
         </tbody>
 
     </table>
+    </div>
 
 {% else %}
 
@@ -174,6 +185,7 @@ Review | {{ settings.app_name }}
 
     {% if sessions %}
 
+        <div class="table-scroll">
         <table>
 
             <thead>
@@ -246,6 +258,7 @@ Review | {{ settings.app_name }}
             </tbody>
 
         </table>
+        </div>
 
     {% else %}
 

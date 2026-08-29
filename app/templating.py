@@ -1,6 +1,10 @@
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
+from app.services.tasks import (
+    TASK_PATH_SEPARATOR,
+    task_ancestry_label,
+)
 
 
 class LiveSettings:
@@ -30,3 +34,9 @@ templates = AppTemplates(
 )
 
 templates.env.globals["settings"] = LiveSettings()
+templates.env.globals["task_ancestry_label"] = (
+    task_ancestry_label
+)
+templates.env.globals["task_path_separator"] = (
+    TASK_PATH_SEPARATOR
+)

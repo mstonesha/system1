@@ -1,10 +1,16 @@
+import re
+
 import pytest
 
 from app.models import Task
 from app.services.tasks import (
+    TASK_PATH_SEPARATOR,
     cancel_task,
     complete_task,
     create_task,
+    task_ancestry_label,
+    task_ancestor_titles,
+    task_breadcrumb,
     update_task_title,
 )
 
@@ -103,3 +109,254 @@ def test_create_task_accepts_200_character_title(db):
 
     assert task.title == title
     assert len(task.title) == 200
+
+
+def test_root_task_has_no_ancestry(db, make_task):
+    task = make_task("Root work")
+
+    assert task_ancestor_titles(task) == []
+    assert task_ancestry_label(task) == ""
+    assert task_breadcrumb(task) == "Root work"
+
+
+def test_one_level_nested_task_ancestry(db, make_task):
+    parent = make_task("Build Akrasia_Zero")
+    child = make_task(
+        "Write Installation Documents",
+        parent=parent,
+    )
+
+    assert task_ancestor_titles(child) == [
+        "Build Akrasia_Zero",
+    ]
+    assert task_ancestry_label(child) == (
+        "Build Akrasia_Zero"
+    )
+    assert task_breadcrumb(child) == (
+        "Build Akrasia_Zero"
+        + TASK_PATH_SEPARATOR
+        + "Write Installation Documents"
+    )
+
+
+def test_deeper_nested_task_ancestry(db, make_task):
+    root = make_task("Build Akrasia_Zero")
+    branch = make_task(
+        "Documentation",
+        parent=root,
+    )
+    leaf = make_task(
+        "Write Installation Documents",
+        parent=branch,
+    )
+
+    assert task_ancestor_titles(leaf) == [
+        "Build Akrasia_Zero",
+        "Documentation",
+    ]
+    assert task_breadcrumb(leaf) == (
+        "Build Akrasia_Zero"
+        + TASK_PATH_SEPARATOR
+        + "Documentation"
+        + TASK_PATH_SEPARATOR
+        + "Write Installation Documents"
+    )
+
+
+def _task_status_labels(html: str) -> list[str]:
+    return re.findall(
+        r'class="task-status"\s*>\s*([^<]+?)\s*<',
+        html,
+    )
+
+
+def test_task_list_active_task_has_no_status_label(
+    client,
+    make_task,
+):
+    make_task("Quiet work")
+
+    page = client.get("/")
+
+    assert page.status_code == 200
+    assert "Quiet work" in page.text
+    assert _task_status_labels(page.text) == []
+
+
+def test_task_list_hides_completed_and_cancelled_by_default(
+    client,
+    db,
+    make_task,
+):
+    done = make_task("Done work")
+    dropped = make_task("Dropped work")
+    complete_task(db, done)
+    cancel_task(db, dropped)
+
+    page = client.get("/")
+    tree = client.get("/task-tree")
+
+    assert page.status_code == 200
+    assert "Done work" not in page.text
+    assert "Dropped work" not in page.text
+    assert tree.status_code == 200
+    assert "Done work" not in tree.text
+    assert "Dropped work" not in tree.text
+    assert _task_status_labels(tree.text) == []
+
+
+def test_task_list_completed_status_uses_canonical_wording(
+    client,
+    db,
+    make_task,
+):
+    done = make_task("Done work")
+    complete_task(db, done)
+
+    tree = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert tree.status_code == 200
+    assert "Done work" in tree.text
+    assert _task_status_labels(tree.text) == ["Completed"]
+    assert "Abandoned" not in tree.text
+
+
+def test_task_list_cancelled_status_uses_canonical_wording(
+    client,
+    db,
+    make_task,
+):
+    dropped = make_task("Dropped work")
+    cancel_task(db, dropped)
+
+    tree = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert tree.status_code == 200
+    assert "Dropped work" in tree.text
+    assert _task_status_labels(tree.text) == ["Cancelled"]
+    assert "Abandoned" not in tree.text
+
+
+def test_task_list_hierarchy_remains_intact_with_inactive_child(
+    client,
+    db,
+    make_task,
+):
+    parent = make_task("Parent work")
+    child = make_task("Child work", parent=parent)
+    complete_task(db, child)
+
+    hidden = client.get("/")
+    shown = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert hidden.status_code == 200
+    assert "Parent work" in hidden.text
+    assert "Child work" not in hidden.text
+    assert _task_status_labels(hidden.text) == []
+
+    assert shown.status_code == 200
+    assert f'id="children-{parent.id}"' in shown.text
+    assert "Parent work" in shown.text
+    assert "Child work" in shown.text
+    assert _task_status_labels(shown.text) == ["Completed"]
+
+
+def test_task_list_active_actions_have_visible_text_and_labels(
+    client,
+    make_task,
+):
+    make_task("Quiet work")
+
+    page = client.get("/")
+
+    assert page.status_code == 200
+    html = page.text
+
+    title_at = html.index('id="task-title-')
+    add_at = html.index("+ Add subtask")
+    complete_at = html.index('aria-label="Complete Quiet work"')
+    cancel_at = html.index('aria-label="Cancel Quiet work"')
+    edit_at = html.index('aria-label="Edit Quiet work"')
+
+    assert title_at < add_at < complete_at < cancel_at < edit_at
+    assert 'title="Complete task"' in html
+    assert 'title="Cancel task"' in html
+    assert 'title="Edit task"' in html
+    assert 'aria-label="Add subtask to Quiet work"' in html
+    assert re.search(
+        r'aria-label="Complete Quiet work"[^>]*>\s*'
+        r'<span aria-hidden="true">✓</span>\s*</button>',
+        html,
+    )
+    assert re.search(
+        r'aria-label="Cancel Quiet work"[^>]*>\s*'
+        r'<span aria-hidden="true">×</span>\s*</button>',
+        html,
+    )
+    assert re.search(
+        r'aria-label="Edit Quiet work"[^>]*>\s*'
+        r'<span aria-hidden="true">✎</span>\s*Edit\s*</button>',
+        html,
+    )
+    assert 'hx-post="/tasks/' in html
+    assert "Reopen" not in html
+
+
+def test_task_list_inactive_rows_keep_labelled_reopen(
+    client,
+    db,
+    make_task,
+):
+    done = make_task("Done work")
+    dropped = make_task("Dropped work")
+    complete_task(db, done)
+    cancel_task(db, dropped)
+
+    tree = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert tree.status_code == 200
+    assert f'hx-post="/tasks/{done.id}/reopen"' in tree.text
+    assert f'hx-post="/tasks/{dropped.id}/reopen"' in tree.text
+    assert 'aria-label="Reopen Done work"' in tree.text
+    assert 'aria-label="Reopen Dropped work"' in tree.text
+    assert 'title="Reopen task"' in tree.text
+    assert _task_status_labels(tree.text) == [
+        "Completed",
+        "Cancelled",
+    ]
+    assert "+ Add subtask" not in tree.text
+    assert 'aria-label="Complete Done work"' not in tree.text
+
+
+def test_task_list_actions_keep_hierarchy_and_status(
+    client,
+    db,
+    make_task,
+):
+    parent = make_task("Parent work")
+    child = make_task("Child work", parent=parent)
+    complete_task(db, child)
+
+    shown = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert shown.status_code == 200
+    assert f'id="children-{parent.id}"' in shown.text
+    assert 'aria-label="Complete Parent work"' in shown.text
+    assert 'aria-label="Add subtask to Parent work"' in shown.text
+    assert 'aria-label="Reopen Child work"' in shown.text
+    assert _task_status_labels(shown.text) == ["Completed"]

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-Today's Tasks | {{ settings.app_name }}
+Daily Plan | {{ settings.app_name }}
 {% endblock %}
 
 {% block today_nav_class %}active{% endblock %}
@@ -117,9 +117,9 @@ Today's Tasks | {{ settings.app_name }}
                     ↺ Yesterday ·
                     {{ carry_forward.planned_sessions or 1 }}
                     {% if (carry_forward.planned_sessions or 1) == 1 %}
-                        session
+                        planned session
                     {% else %}
-                        sessions
+                        planned sessions
                     {% endif %}
                 </span>
 
@@ -155,13 +155,13 @@ Today's Tasks | {{ settings.app_name }}
 
         <div>
 
-            <h1 class="today-heading">
-                Today's Tasks
-            </h1>
-
             <div class="today-selected-date">
-                {{ selected_date.strftime("%A %d %B %Y") }}
+                Daily Plan
             </div>
+
+            <h1 class="today-heading">
+                Plan for {{ selected_date.strftime("%A %d %B %Y") }}
+            </h1>
 
         </div>
 
@@ -248,7 +248,7 @@ Today's Tasks | {{ settings.app_name }}
             <header class="today-pane-header">
 
                 <h2 id="today-queue-heading">
-                    Today
+                    This day
                 </h2>
 
                 <span class="today-pane-note">
@@ -258,15 +258,59 @@ Today's Tasks | {{ settings.app_name }}
             </header>
 
 
+            <div class="today-plan-summary">
+
+                <p class="today-plan-summary-focus">
+                    {{ plan_totals.planned_sessions }}
+                    {% if plan_totals.planned_sessions == 1 %}
+                        planned session
+                    {% else %}
+                        planned sessions
+                    {% endif %}
+                    ·
+                    {{ plan_totals.focus_minutes }} min
+                    {% if plan_totals.focus_minutes >= 60 %}
+                        ({{ plan_totals.focus_label }})
+                    {% endif %}
+                </p>
+
+                {% if plan_totals.break_minutes %}
+
+                    <p class="today-plan-summary-breaks">
+                        Including breaks between sessions:
+                        {{ plan_totals.including_breaks_minutes }} min
+                        {% if plan_totals.including_breaks_minutes >= 60 %}
+                            ({{ plan_totals.including_breaks_label }})
+                        {% endif %}
+                    </p>
+
+                {% endif %}
+
+            </div>
+
+
             {% if daily_tasks %}
 
                 <ol class="today-queue">
 
                     {% for daily_task in daily_tasks %}
 
-                        <li class="today-queue-item">
+                        {% set has_planned_count = daily_task.planned_sessions is not none %}
+
+                        <li
+                            class="today-queue-item"
+                            data-queue-position="{{ loop.index }}"
+                            data-task-title="{{ daily_task.task.title }}"
+                        >
 
                             <div class="queue-order-controls">
+
+                                <span
+                                    class="queue-position"
+                                    aria-label="Queue position {{ loop.index }}"
+                                >
+                                    {{ loop.index }}
+                                </span>
 
                                 <form
                                     method="post"
@@ -322,8 +366,37 @@ Today's Tasks | {{ settings.app_name }}
                             </div>
 
 
-                            <div class="queue-task-title">
-                                {{ daily_task.task.title }}
+                            <div class="queue-task-copy">
+
+                                <div class="queue-task-title">
+                                    {% set ancestry = task_ancestry_label(daily_task.task) %}
+                                    {% if ancestry %}
+                                        <span class="task-ancestry">{{ ancestry }}{{ task_path_separator }}</span>
+                                    {% endif %}
+                                    {{ daily_task.task.title }}
+                                </div>
+
+                                {% if has_planned_count %}
+
+                                    <p class="queue-task-effort">
+                                        {{ daily_task.planned_sessions }}
+                                        {% if daily_task.planned_sessions == 1 %}
+                                            planned session
+                                        {% else %}
+                                            planned sessions
+                                        {% endif %}
+                                        ·
+                                        {{ daily_task.planned_sessions * settings.focus_session_minutes }} min
+                                    </p>
+
+                                {% else %}
+
+                                    <p class="queue-task-effort">
+                                        Planned sessions not set
+                                    </p>
+
+                                {% endif %}
+
                             </div>
 
 
@@ -342,14 +415,14 @@ Today's Tasks | {{ settings.app_name }}
                                 >
 
                                 <label
-                                    for="sessions-{{ daily_task.id }}"
+                                    for="planned-sessions-{{ daily_task.id }}"
                                     class="session-label"
                                 >
-                                    Sessions
+                                    Planned sessions
                                 </label>
 
                                 <input
-                                    id="sessions-{{ daily_task.id }}"
+                                    id="planned-sessions-{{ daily_task.id }}"
                                     class="session-count-input"
                                     type="number"
                                     name="planned_sessions"
@@ -358,12 +431,27 @@ Today's Tasks | {{ settings.app_name }}
                                     required
                                 >
 
-                                <button
-                                    type="submit"
-                                    class="queue-commit"
-                                >
-                                    Commit
-                                </button>
+                                {% if has_planned_count %}
+
+                                    <button
+                                        type="submit"
+                                        class="queue-commit"
+                                        aria-label="Update planned sessions for {{ daily_task.task.title }}"
+                                    >
+                                        Update plan
+                                    </button>
+
+                                {% else %}
+
+                                    <button
+                                        type="submit"
+                                        class="queue-commit"
+                                        aria-label="Save planned sessions for {{ daily_task.task.title }}"
+                                    >
+                                        Save plan
+                                    </button>
+
+                                {% endif %}
 
                             </form>
 
@@ -378,7 +466,7 @@ Today's Tasks | {{ settings.app_name }}
                 <div class="today-empty-state">
 
                     <p>
-                        Nothing committed to this day.
+                        Nothing selected for this day.
                     </p>
 
                     <p class="muted">

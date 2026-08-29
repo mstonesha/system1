@@ -280,3 +280,59 @@ def get_carry_forward_candidates(
     ]
 
     return candidates
+
+
+def format_minutes(total_minutes: int) -> str:
+    """Render a minute count as a compact duration label."""
+    if total_minutes < 60:
+        return f"{total_minutes} min"
+
+    hours, minutes = divmod(total_minutes, 60)
+    hour_label = "1 hr" if hours == 1 else f"{hours} hr"
+
+    if minutes == 0:
+        return hour_label
+
+    return f"{hour_label} {minutes} min"
+
+
+def plan_display_totals(
+    daily_tasks: list[DailyTask],
+    *,
+    focus_session_minutes: int,
+    break_duration_minutes: int,
+) -> dict[str, int | str]:
+    """Presentation totals for the Today queue.
+
+    NULL planned_sessions are omitted, not treated as zero or one.
+    Inter-session breaks are (n - 1) configured breaks for n > 1
+    explicit sessions; that is display-only.
+    """
+    planned_sessions = sum(
+        daily_task.planned_sessions
+        for daily_task in daily_tasks
+        if daily_task.planned_sessions is not None
+    )
+    focus_minutes = (
+        planned_sessions * focus_session_minutes
+    )
+    break_minutes = (
+        (planned_sessions - 1) * break_duration_minutes
+        if planned_sessions > 1
+        else 0
+    )
+    including_breaks_minutes = (
+        focus_minutes + break_minutes
+    )
+
+    return {
+        "planned_sessions": planned_sessions,
+        "focus_minutes": focus_minutes,
+        "focus_label": format_minutes(focus_minutes),
+        "break_minutes": break_minutes,
+        "including_breaks_minutes":
+            including_breaks_minutes,
+        "including_breaks_label": format_minutes(
+            including_breaks_minutes
+        ),
+    }

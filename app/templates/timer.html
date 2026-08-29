@@ -39,6 +39,13 @@ Session Timer | {{ settings.app_name }}
                     {% endif %}
                 </div>
 
+                {% set running_ancestry = task_ancestry_label(running_session.daily_task.task) %}
+                {% if running_ancestry %}
+                    <div class="focus-task-ancestry">
+                        {{ running_ancestry }}
+                    </div>
+                {% endif %}
+
                 <h1 class="focus-task-title">
                     {{ running_session.daily_task.task.title }}
                 </h1>
@@ -301,6 +308,13 @@ Session Timer | {{ settings.app_name }}
                 <div class="focus-state-label">
                     Ready
                 </div>
+
+                {% set ready_ancestry = task_ancestry_label(next_daily_task.task) %}
+                {% if ready_ancestry %}
+                    <div class="focus-task-ancestry">
+                        {{ ready_ancestry }}
+                    </div>
+                {% endif %}
 
                 <h1 class="focus-task-title">
                     {{ next_daily_task.task.title }}
