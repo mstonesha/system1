@@ -292,6 +292,11 @@ def test_task_list_active_actions_have_visible_text_and_labels(
     assert 'title="Cancel task"' in html
     assert 'title="Edit task"' in html
     assert 'aria-label="Add subtask to Quiet work"' in html
+    assert 'role="group"' in html
+    assert 'aria-label="Actions for Quiet work"' in html
+    assert 'for="edit-title-' in html
+    assert 'for="subtask-title-' in html
+    assert 'for="new-task-title"' in html
     assert re.search(
         r'aria-label="Complete Quiet work"[^>]*>\s*'
         r'<span aria-hidden="true">✓</span>\s*</button>',

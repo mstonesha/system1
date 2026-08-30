@@ -5,8 +5,73 @@ Session Timer | {{ settings.app_name }}
 {% endblock %}
 
 {% block timer_nav_class %}active{% endblock %}
+{% block timer_nav_current %}aria-current="page"{% endblock %}
 
 {% block content %}
+
+{% macro current_task_heading(task) %}
+    {% set ancestry = task_ancestry_label(task) %}
+    {% if ancestry %}
+        <div class="focus-task-ancestry">
+            {{ ancestry }}
+        </div>
+    {% endif %}
+
+    <h1 class="focus-task-title">
+        {{ task.title }}
+    </h1>
+{% endmacro %}
+
+
+{% macro planned_session_context(include_remaining=True) %}
+    {% if session_number and session_total %}
+        <div class="focus-session-number">
+            Session {{ session_number }} of {{ session_total }}
+        </div>
+    {% endif %}
+
+    {% if include_remaining %}
+        {% if remaining_after is not none and remaining_after > 0 %}
+            <div class="focus-remaining">
+                {{ remaining_after }}
+                planned
+                {% if remaining_after == 1 %}
+                    session
+                {% else %}
+                    sessions
+                {% endif %}
+                remaining after this one
+            </div>
+        {% elif remaining_after == 0 %}
+            <div class="focus-remaining">
+                Last planned session
+            </div>
+        {% endif %}
+    {% endif %}
+{% endmacro %}
+
+
+{% macro up_next_cue() %}
+    {% if up_next_mode == "same_task" %}
+        <div class="focus-up-next">
+            Up next: another session of this task
+        </div>
+    {% elif up_next_mode == "queued_task" and up_next_daily_task %}
+        <div class="focus-up-next">
+            Up next:
+            {% set next_ancestry = task_ancestry_label(up_next_daily_task.task) %}
+            {% if next_ancestry %}
+                <span class="focus-up-next-ancestry">{{ next_ancestry }}{{ task_path_separator }}</span>
+            {% endif %}
+            {{ up_next_daily_task.task.title }}
+        </div>
+    {% elif up_next_mode == "none" %}
+        <div class="focus-up-next">
+            Nothing else queued
+        </div>
+    {% endif %}
+{% endmacro %}
+
 
 <section class="focus-page">
 
@@ -39,20 +104,17 @@ Session Timer | {{ settings.app_name }}
                     {% endif %}
                 </div>
 
-                {% set running_ancestry = task_ancestry_label(running_session.daily_task.task) %}
-                {% if running_ancestry %}
-                    <div class="focus-task-ancestry">
-                        {{ running_ancestry }}
-                    </div>
-                {% endif %}
+                <p class="focus-state-copy" id="focus-state-copy">
+                    {% if running_session.ended_at %}
+                        Record the result of this session
+                    {% else %}
+                        Session in progress
+                    {% endif %}
+                </p>
 
-                <h1 class="focus-task-title">
-                    {{ running_session.daily_task.task.title }}
-                </h1>
-
-                <div class="focus-session-number">
-                    Session {{ session_number }} of {{ session_total }}
-                </div>
+                {{ current_task_heading(running_session.daily_task.task) }}
+                {{ planned_session_context() }}
+                {{ up_next_cue() }}
 
             </header>
 
@@ -102,7 +164,7 @@ Session Timer | {{ settings.app_name }}
                         type="submit"
                         class="end-early-button"
                     >
-                        End Early
+                        End session early
                     </button>
 
                 </form>
@@ -154,7 +216,7 @@ Session Timer | {{ settings.app_name }}
                     <fieldset class="outcome-fieldset">
 
                         <legend>
-                            Result
+                            Session result
                         </legend>
 
                         <div class="outcome-options">
@@ -264,6 +326,13 @@ Session Timer | {{ settings.app_name }}
                     Break
                 </div>
 
+                <p class="focus-state-copy">
+                    Pause between focus sessions
+                </p>
+
+                {{ up_next_cue() }}
+                {{ planned_session_context(include_remaining=False) }}
+
             </header>
 
 
@@ -286,6 +355,11 @@ Session Timer | {{ settings.app_name }}
                     ></div>
                 </div>
 
+                <p class="focus-duration-note">
+                    Configured break:
+                    {{ settings.break_duration_minutes }} min
+                </p>
+
             </div>
 
 
@@ -293,7 +367,7 @@ Session Timer | {{ settings.app_name }}
                 href="/timer/"
                 class="end-early-button"
             >
-                End Early
+                End break early
             </a>
 
         </div>
@@ -309,20 +383,13 @@ Session Timer | {{ settings.app_name }}
                     Ready
                 </div>
 
-                {% set ready_ancestry = task_ancestry_label(next_daily_task.task) %}
-                {% if ready_ancestry %}
-                    <div class="focus-task-ancestry">
-                        {{ ready_ancestry }}
-                    </div>
-                {% endif %}
+                <p class="focus-state-copy">
+                    Next focus session
+                </p>
 
-                <h1 class="focus-task-title">
-                    {{ next_daily_task.task.title }}
-                </h1>
-
-                <div class="focus-session-number">
-                    Session {{ session_number }} of {{ session_total }}
-                </div>
+                {{ current_task_heading(next_daily_task.task) }}
+                {{ planned_session_context() }}
+                {{ up_next_cue() }}
 
             </header>
 
@@ -345,6 +412,11 @@ Session Timer | {{ settings.app_name }}
                         style="width: 0;"
                     ></div>
                 </div>
+
+                <p class="focus-duration-note">
+                    Configured focus:
+                    {{ settings.focus_session_minutes }} min
+                </p>
 
             </div>
 
@@ -429,9 +501,9 @@ Session Timer | {{ settings.app_name }}
 
             <a
                 href="/today/page"
-                class="button"
+                class="button button-primary"
             >
-                Go to Today’s Tasks
+                Go to Daily Plan
             </a>
 
         </div>

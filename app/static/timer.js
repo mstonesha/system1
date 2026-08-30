@@ -80,6 +80,33 @@ if (sessionElement && timerDisplay) {
             completeMessage.hidden = false;
         }
 
+        sessionElement.classList.remove(
+            "focus-running-state"
+        );
+        sessionElement.classList.add(
+            "focus-outcome-state"
+        );
+
+        const stateLabel =
+            sessionElement.querySelector(
+                ".focus-state-label"
+            );
+
+        if (stateLabel) {
+            stateLabel.textContent =
+                "Session ended";
+        }
+
+        const stateCopy =
+            document.getElementById(
+                "focus-state-copy"
+            );
+
+        if (stateCopy) {
+            stateCopy.textContent =
+                "Record the result of this session";
+        }
+
         const elapsedSeconds =
             Math.max(
                 0,

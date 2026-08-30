@@ -5,6 +5,7 @@ Task List | {{ settings.app_name }}
 {% endblock %}
 
 {% block task_nav_class %}active{% endblock %}
+{% block task_nav_current %}aria-current="page"{% endblock %}
 
 {% block content %}
 
@@ -81,7 +82,12 @@ Task List | {{ settings.app_name }}
 
             {% include "partials/csrf_field.html" %}
 
+            <label class="visually-hidden" for="new-task-title">
+                Task name
+            </label>
+
             <input
+                id="new-task-title"
                 type="text"
                 name="title"
                 placeholder="Task name"

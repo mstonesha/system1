@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth.http import require_browser_session
 from app.config import get_settings
 from app.database import get_db
-from app.models import WorkSession
+from app.models import DailyTask, WorkSession
 from app.services.sessions import (
     commit_work_session,
     end_work_session_early,
@@ -24,6 +24,60 @@ router = APIRouter(
     tags=["timer"],
     dependencies=[Depends(require_browser_session)],
 )
+
+
+def _completed_session_count(
+    db: Session,
+    daily_task: DailyTask,
+) -> int:
+    return (
+        db.query(WorkSession)
+        .filter(
+            WorkSession.daily_task_id == daily_task.id,
+            WorkSession.session_state == "completed",
+        )
+        .count()
+    )
+
+
+def _planned_session_progress(
+    db: Session,
+    daily_task: DailyTask | None,
+) -> dict:
+    """Return Session N of M only when planned_sessions is set.
+
+    Position is completed WorkSessions + 1. Remaining after the
+    current/upcoming session is planned minus that position.
+    If more sessions have been completed than planned, omit the
+    position rather than inventing a larger total.
+    """
+    empty = {
+        "session_number": None,
+        "session_total": None,
+        "remaining_after": None,
+    }
+
+    if (
+        daily_task is None
+        or daily_task.planned_sessions is None
+    ):
+        return empty
+
+    session_number = (
+        _completed_session_count(db, daily_task) + 1
+    )
+    session_total = daily_task.planned_sessions
+
+    if session_number > session_total:
+        return empty
+
+    return {
+        "session_number": session_number,
+        "session_total": session_total,
+        "remaining_after": (
+            session_total - session_number
+        ),
+    }
 
 
 @router.get("/")
@@ -57,33 +111,46 @@ def timer_page(
             target_date=selected_date,
         )
 
-    session_number = None
-    session_total = None
     session_daily_task = None
+    remaining_after = None
+    up_next_mode = None
+    up_next_daily_task = None
 
     if running_session is not None:
         session_daily_task = running_session.daily_task
 
+    elif active_break_until is not None:
+        up_next_daily_task = get_next_daily_task(
+            db=db,
+            target_date=selected_date,
+        )
+        if up_next_daily_task is None:
+            up_next_mode = "none"
+        else:
+            up_next_mode = "queued_task"
+            session_daily_task = up_next_daily_task
+
     elif next_daily_task is not None:
         session_daily_task = next_daily_task
 
-    if session_daily_task is not None:
-        completed_session_count = (
-            db.query(WorkSession)
-            .filter(
-                WorkSession.daily_task_id
-                == session_daily_task.id,
-                WorkSession.session_state == "completed",
-            )
-            .count()
-        )
+    progress = _planned_session_progress(
+        db,
+        session_daily_task,
+    )
+    session_number = progress["session_number"]
+    session_total = progress["session_total"]
 
-        session_number = completed_session_count + 1
-
-        session_total = max(
-            session_number,
-            session_daily_task.planned_sessions or 1,
-        )
+    if (
+        running_session is not None
+        or next_daily_task is not None
+    ):
+        remaining_after = progress["remaining_after"]
+        if (
+            remaining_after is not None
+            and remaining_after > 0
+        ):
+            up_next_mode = "same_task"
+            up_next_daily_task = session_daily_task
 
     return templates.TemplateResponse(
         request=request,
@@ -95,6 +162,9 @@ def timer_page(
             "next_daily_task": next_daily_task,
             "session_number": session_number,
             "session_total": session_total,
+            "remaining_after": remaining_after,
+            "up_next_mode": up_next_mode,
+            "up_next_daily_task": up_next_daily_task,
         },
     )
 

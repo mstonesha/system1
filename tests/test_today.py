@@ -643,6 +643,7 @@ def test_today_page_current_day_uses_daily_plan_wording(
     assert "Daily Plan | Akrasia_Zero" in page.text
     assert _plan_for_label(current) in text
     assert "Today's Tasks" not in page.text
+    assert "Today’s Tasks" not in page.text
     assert re.search(
         r'href="/today/page"\s+class="date-nav-link"\s*>\s*Today',
         nav,
@@ -674,6 +675,8 @@ def test_today_page_past_and_future_days_use_plan_for_date(
     assert _plan_for_label(current) not in future_text
     assert "Today's Tasks" not in past_page.text
     assert "Today's Tasks" not in future_page.text
+    assert "Today’s Tasks" not in past_page.text
+    assert "Today’s Tasks" not in future_page.text
 
 
 def test_today_page_today_navigation_stays_available(
@@ -707,12 +710,18 @@ def test_today_page_previous_and_next_navigation_unchanged(
         f'href="/today/page?target_date={previous}"'
         in nav
     )
-    assert "← Previous" in nav
+    assert re.search(
+        r'<span aria-hidden="true">←</span>\s*Previous',
+        nav,
+    )
     assert (
         f'href="/today/page?target_date={following}"'
         in nav
     )
-    assert "Next →" in nav
+    assert re.search(
+        r'Next\s*<span aria-hidden="true">→</span>',
+        nav,
+    )
 
     past_page = client.get(
         f"/today/page?target_date={previous}",
@@ -814,4 +823,61 @@ def test_today_page_shows_deeper_nested_ancestry(
         task_ancestry_label(leaf) + TASK_PATH_SEPARATOR
     ).strip()
     assert "Write Installation Documents" in page.text
+
+
+def test_today_page_selection_checkboxes_have_names_and_hit_area(
+    client,
+    make_task,
+):
+    make_task("Selectable work")
+
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert 'class="today-checkbox-control"' in page.text
+    assert 'aria-label="Add Selectable work to this day"' in page.text
+    assert 'id="select-task-' in page.text
+
+
+def test_today_page_queue_controls_have_accessible_names(
+    client,
+    db,
+    make_task,
+):
+    first = make_task("Alpha item")
+    second = make_task("Beta item")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=first,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    add_task_to_day(
+        db=db,
+        task=second,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    page = client.get("/today/page")
+    html = page.text
+
+    assert page.status_code == 200
+    assert 'aria-label="Move Alpha item up"' in html
+    assert 'aria-label="Move Alpha item down"' in html
+    assert 'aria-label="Move Beta item up"' in html
+    assert 'aria-label="Move Beta item down"' in html
+    assert re.search(
+        r'aria-label="Move Alpha item up"[^>]*>\s*'
+        r'<span aria-hidden="true">↑</span>',
+        html,
+    )
+    assert re.search(
+        r'aria-label="Move Alpha item down"[^>]*>\s*'
+        r'<span aria-hidden="true">↓</span>',
+        html,
+    )
+    assert "Queue position" in html
+    assert 'aria-label="Update planned sessions for Alpha item"' in html
 

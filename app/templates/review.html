@@ -8,18 +8,19 @@ Review | {{ settings.app_name }}
 
 <section class="review-page">
 
-    <h2>Review</h2>
+    <h1 class="review-heading">Review</h1>
 
-    <h3>
+    <h2 class="review-date">
         {{ selected_date.strftime("%A %d %B %Y") }}
-    </h3>
+    </h2>
 
     <nav class="date-navigation" aria-label="Date navigation">
     <a
         class="date-nav-link"
         href="/review/?target_date={{ previous_date }}"
     >
-        ← Previous
+        <span aria-hidden="true">←</span>
+        Previous
     </a>
 
     <a
@@ -33,11 +34,12 @@ Review | {{ settings.app_name }}
         class="date-nav-link"
         href="/review/?target_date={{ next_date }}"
     >
-        Next →
+        Next
+        <span aria-hidden="true">→</span>
     </a>
 </nav>
 
-<h3>Daily summary</h3>
+<h2 class="review-section-heading" id="daily-summary-heading">Daily summary</h2>
 
 <dl class="daily-summary">
 
@@ -99,23 +101,23 @@ Review | {{ settings.app_name }}
 
 </dl>
 
-<h3>Planned versus actual</h3>
+<h2 class="review-section-heading" id="planned-versus-actual-heading">Planned versus actual</h2>
 
 {% if task_performance %}
 
     <div class="table-scroll">
-    <table>
+    <table aria-labelledby="planned-versus-actual-heading">
 
         <thead>
             <tr>
-                <th>Task</th>
-                <th>Committed sessions</th>
-                <th>Actual sessions</th>
-                <th>Focus time</th>
-                <th>Daily state</th>
-                <th>Latest outcome</th>
-                <th>Previous day</th>
-                <th>Next day</th>
+                <th scope="col">Task</th>
+                <th scope="col">Committed sessions</th>
+                <th scope="col">Actual sessions</th>
+                <th scope="col">Focus time</th>
+                <th scope="col">Daily state</th>
+                <th scope="col">Latest outcome</th>
+                <th scope="col">Previous day</th>
+                <th scope="col">Next day</th>
             </tr>
         </thead>
 
@@ -181,23 +183,23 @@ Review | {{ settings.app_name }}
 {% endif %}
 
 
-<h3>Session history</h3>
+<h2 class="review-section-heading" id="session-history-heading">Session history</h2>
 
     {% if sessions %}
 
         <div class="table-scroll">
-        <table>
+        <table aria-labelledby="session-history-heading">
 
             <thead>
                 <tr>
-                    <th>Task</th>
-                    <th>Started</th>
-                    <th>Ended</th>
-                    <th>Planned</th>
-                    <th>Actual</th>
-                    <th>Outcome</th>
-                    <th>Interrupted</th>
-                    <th>Note</th>
+                    <th scope="col">Task</th>
+                    <th scope="col">Started</th>
+                    <th scope="col">Ended</th>
+                    <th scope="col">Planned</th>
+                    <th scope="col">Actual</th>
+                    <th scope="col">Outcome</th>
+                    <th scope="col">Interrupted</th>
+                    <th scope="col">Note</th>
                 </tr>
             </thead>
 

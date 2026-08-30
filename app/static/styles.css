@@ -2,15 +2,19 @@
     --color-antique-white: #F4EADE;
     --color-outer-bg: #FAF7F2;
     --color-peru: #BE9860;
-    --color-gray: #857A6F;
+    --color-gray: #6A5F55;
     --color-maroon: #421B0B;
     --color-midnight-blue: #2B2D42;
 
     --font-serif: "Source Serif 4", Georgia, serif;
     --font-sans: "IBM Plex Sans", Arial, sans-serif;
 
-    --border-color: rgba(43, 45, 66, 0.24);
-    --border-strong: rgba(43, 45, 66, 0.48);
+    --border-color: rgba(43, 45, 66, 0.32);
+    --border-strong: rgba(43, 45, 66, 0.52);
+
+    --focus-ring-color: var(--color-maroon);
+    --focus-ring-on-dark: var(--color-antique-white);
+    --control-touch-min: 2.75rem;
 
     --space-xs: 0.35rem;
     --space-sm: 0.65rem;
@@ -228,7 +232,7 @@ select {
     justify-content: center;
 
     min-width: 7rem;
-    min-height: 2.5rem;
+    min-height: var(--control-touch-min);
     padding: 0.5rem 1rem;
 
     border: 1px solid var(--border-strong);
@@ -301,13 +305,16 @@ select {
     color: var(--color-midnight-blue);
 
     padding: 0.45rem 0.6rem;
-
-    outline: none;
 }
 
-input:focus,
-textarea:focus,
-select:focus {
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+select {
+    min-height: var(--control-touch-min);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
     border-color: var(--color-maroon);
     box-shadow: 0 0 0 1px var(--color-maroon);
 }
@@ -337,9 +344,9 @@ textarea {
 }
 
 .task-inline-edit button {
-    min-height: 1.9rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.65rem;
 
     font-size: 0.82rem;
 }
@@ -354,7 +361,7 @@ button,
     align-items: center;
     justify-content: center;
 
-    min-height: 2.25rem;
+    min-height: var(--control-touch-min);
     padding: 0.4rem 0.75rem;
 
     border: 1px solid var(--border-strong);
@@ -378,11 +385,26 @@ button:hover,
     background: rgba(190, 152, 96, 0.16);
 }
 
+a:focus-visible,
 button:focus-visible,
 .button:focus-visible,
-a:focus-visible {
-    outline: 2px solid var(--color-maroon);
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
     outline-offset: 3px;
+}
+
+.nav-tab.active:focus-visible,
+.button-primary:focus-visible,
+button.primary:focus-visible,
+button[type="submit"].primary:focus-visible,
+.start-focus-button:focus-visible,
+.commit-session-button:focus-visible,
+.review-link:hover:focus-visible,
+.skip-link:focus-visible {
+    outline-color: var(--focus-ring-on-dark);
 }
 
 
@@ -438,6 +460,8 @@ button[type="submit"].primary:hover {
 
     gap: 0.5rem;
 
+    min-height: var(--control-touch-min);
+
     color: var(--color-gray);
 
     font-size: 0.88rem;
@@ -446,6 +470,8 @@ button[type="submit"].primary:hover {
 }
 
 .inactive-toggle input {
+    width: 1.15rem;
+    height: 1.15rem;
     margin: 0;
 }
 
@@ -496,10 +522,11 @@ button[type="submit"].primary:hover {
 .date-nav-link {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
 
-    min-height: 1.9rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.25rem 0.55rem;
+    padding: 0.4rem 0.7rem;
 
     border: 1px solid transparent;
     border-radius: var(--radius-small);
@@ -661,10 +688,6 @@ button[type="submit"].primary:hover {
 
 /* Carry-forward */
 
-.today-tree-item-carry > .today-tree-row {
-    opacity: 0.78;
-}
-
 .carry-forward-marker {
     margin-left: auto;
 
@@ -706,10 +729,10 @@ button[type="submit"].primary:hover {
 }
 
 .queue-arrow {
-    width: 1.45rem;
-    min-width: 1.45rem;
-    height: 1.7rem;
-    min-height: 1.7rem;
+    width: var(--control-touch-min);
+    min-width: var(--control-touch-min);
+    height: var(--control-touch-min);
+    min-height: var(--control-touch-min);
 
     padding: 0;
 
@@ -769,9 +792,9 @@ button[type="submit"].primary:hover {
 }
 
 .queue-commit {
-    min-height: 1.85rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.65rem;
 
     border-color: var(--color-maroon);
 
@@ -858,6 +881,19 @@ button[type="submit"].primary:hover {
     margin: 0;
 }
 
+.today-checkbox-control {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: var(--control-touch-min);
+    min-height: var(--control-touch-min);
+
+    margin: 0;
+
+    cursor: pointer;
+}
+
 .today-selector-checkbox {
     appearance: none;
 
@@ -917,10 +953,6 @@ button[type="submit"].primary:hover {
    Carry-forward marker
 -------------------------------------------------- */
 
-.today-tree-item-carry > .today-tree-row {
-    opacity: 0.7;
-}
-
 .carry-forward-marker {
     margin-left: auto;
 
@@ -930,8 +962,6 @@ button[type="submit"].primary:hover {
     font-style: italic;
 
     white-space: nowrap;
-
-    opacity: 0.85;
 }
 
 
@@ -1000,10 +1030,10 @@ button[type="submit"].primary:hover {
 }
 
 .queue-arrow {
-    width: 1.6rem;
-    min-width: 1.6rem;
-    height: 1.8rem;
-    min-height: 1.8rem;
+    width: var(--control-touch-min);
+    min-width: var(--control-touch-min);
+    height: var(--control-touch-min);
+    min-height: var(--control-touch-min);
 
     padding: 0;
 
@@ -1023,7 +1053,7 @@ button[type="submit"].primary:hover {
 }
 
 .queue-arrow:disabled {
-    opacity: 0.22;
+    opacity: 0.55;
 
     cursor: default;
 }
@@ -1087,9 +1117,9 @@ button[type="submit"].primary:hover {
 }
 
 .queue-commit {
-    min-height: 1.9rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.25rem 0.55rem;
+    padding: 0.25rem 0.7rem;
 
     border-color: var(--color-maroon);
 
@@ -1215,7 +1245,7 @@ button[type="submit"].primary:hover {
     }
 
     .carry-forward-marker {
-        display: none;
+        white-space: normal;
     }
 
 }
@@ -1379,10 +1409,10 @@ button[type="submit"].primary:hover {
     align-items: center;
     justify-content: center;
 
-    width: 2.25rem;
-    min-width: 2.25rem;
-    height: 2.25rem;
-    min-height: 2.25rem;
+    width: var(--control-touch-min);
+    min-width: var(--control-touch-min);
+    height: var(--control-touch-min);
+    min-height: var(--control-touch-min);
 
     padding: 0;
 
@@ -1400,7 +1430,7 @@ button[type="submit"].primary:hover {
 
 .task-edit-button {
     width: auto;
-    min-width: 2.25rem;
+    min-width: var(--control-touch-min);
 
     padding: 0 0.5rem;
 
@@ -1426,9 +1456,9 @@ button[type="submit"].primary:hover {
 
 .subtask-toggle,
 .new-task-toggle {
-    min-height: auto;
+    min-height: var(--control-touch-min);
 
-    padding: 0.2rem 0;
+    padding: 0.4rem 0.35rem;
 
     border: none;
 
@@ -1497,9 +1527,9 @@ button[type="submit"].primary:hover {
 }
 
 .task-confirmation button {
-    min-height: 1.8rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.2rem 0.55rem;
+    padding: 0.2rem 0.7rem;
 
     font-size: 0.82rem;
 }
@@ -1576,22 +1606,18 @@ button[type="submit"].primary:hover {
     color: var(--color-gray);
 
     text-decoration: line-through;
-
-    opacity: 0.72;
 }
 
 .task-cancelled {
     color: var(--color-gray);
 
     text-decoration: line-through;
-
-    opacity: 0.58;
 }
 
 .task-reopen-button {
-    min-height: 1.8rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.65rem;
 
     color: var(--color-gray);
 
@@ -1759,7 +1785,7 @@ button[type="submit"].primary:hover {
 }
 
 .focus-state-label {
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
 
     color: var(--color-gray);
 
@@ -1768,6 +1794,24 @@ button[type="submit"].primary:hover {
 
     letter-spacing: 0.10em;
     text-transform: uppercase;
+}
+
+.focus-state-copy {
+    margin: 0 auto 0.55rem;
+
+    color: var(--color-gray);
+
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+.focus-duration-note {
+    margin: 0.75rem 0 0;
+
+    color: var(--color-midnight-blue);
+
+    font-size: 0.9rem;
+    font-weight: 600;
 }
 
 .focus-task-ancestry {
@@ -1808,6 +1852,28 @@ button[type="submit"].primary:hover {
     color: var(--color-gray);
 
     font-size: 0.85rem;
+}
+
+.focus-remaining,
+.focus-up-next {
+    max-width: 36rem;
+
+    margin:
+        0.25rem
+        auto
+        0;
+
+    color: var(--color-gray);
+
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.35;
+
+    overflow-wrap: break-word;
+}
+
+.focus-up-next-ancestry {
+    font-weight: 500;
 }
 
 
@@ -1925,9 +1991,9 @@ button[type="submit"].primary:hover {
     align-items: center;
     justify-content: center;
 
-    min-height: 2rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.3rem 0.65rem;
+    padding: 0.4rem 0.75rem;
 
     border: none;
 
@@ -2039,9 +2105,9 @@ button[type="submit"].primary:hover {
     align-items: center;
     justify-content: center;
 
-    min-height: 2.4rem;
+    min-height: var(--control-touch-min);
 
-    padding: 0.35rem 0.45rem;
+    padding: 0.4rem 0.5rem;
 
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-small);
@@ -2065,9 +2131,17 @@ button[type="submit"].primary:hover {
     color: var(--color-antique-white);
 }
 
+.outcome-option input:focus-visible {
+    outline: none;
+}
+
 .outcome-option input:focus-visible + span {
-    outline: 2px solid var(--color-maroon);
+    outline: 2px solid var(--focus-ring-color);
     outline-offset: 3px;
+}
+
+.outcome-option input:checked:focus-visible + span {
+    outline-color: var(--focus-ring-on-dark);
 }
 
 
@@ -2078,6 +2152,8 @@ button[type="submit"].primary:hover {
     align-items: center;
 
     gap: 0.5rem;
+
+    min-height: var(--control-touch-min);
 
     margin-bottom: var(--space-lg);
 
@@ -2145,8 +2221,20 @@ button[type="submit"].primary:hover {
 
 /* Break */
 
-.break-state {
-    padding-top: var(--space-xxl);
+.focus-ready-state .focus-state-label {
+    color: var(--color-maroon);
+}
+
+.focus-running-state .focus-state-label {
+    color: var(--color-maroon);
+}
+
+.focus-outcome-state .focus-state-label {
+    color: var(--color-midnight-blue);
+}
+
+.break-state .focus-state-label {
+    color: var(--color-midnight-blue);
 }
 
 .break-state .focus-clock-area {
@@ -2155,10 +2243,6 @@ button[type="submit"].primary:hover {
 
 
 /* Empty */
-
-.focus-empty-state {
-    padding-top: var(--space-xxl);
-}
 
 .focus-empty-state h1 {
     font-family: var(--font-serif);
@@ -2214,6 +2298,29 @@ button[type="submit"].primary:hover {
     min-width: 0;
 }
 
+.review-heading {
+    margin: 0 0 var(--space-sm);
+
+    font-family: var(--font-serif);
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.review-date {
+    margin: 0 0 var(--space-md);
+
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.review-section-heading {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.review-page h1,
 .review-page h2,
 .review-page h3 {
     overflow-wrap: break-word;
@@ -2329,7 +2436,9 @@ button[type="submit"].primary:hover {
 }
 
 .logout-button {
-    padding: 0;
+    min-width: var(--control-touch-min);
+    min-height: var(--control-touch-min);
+    padding: 0.35rem 0.5rem;
     border: none;
     background: none;
     color: var(--color-gray);
@@ -2337,4 +2446,82 @@ button[type="submit"].primary:hover {
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 0.15em;
+}
+
+.logout-button:hover {
+    background: transparent;
+    color: var(--color-maroon);
+}
+
+
+/* --------------------------------------------------
+   Accessibility
+-------------------------------------------------- */
+
+.visually-hidden {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    margin: -1px;
+    padding: 0;
+
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+
+    white-space: nowrap;
+
+    border: 0;
+}
+
+.skip-link {
+    position: absolute;
+
+    left: 0.75rem;
+    top: 0.75rem;
+    z-index: 100;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: var(--control-touch-min);
+    padding: 0.5rem 0.85rem;
+
+    border-radius: var(--radius-small);
+
+    background: var(--color-midnight-blue);
+    color: var(--color-antique-white);
+
+    font-weight: 600;
+    text-decoration: none;
+
+    transform: translateY(-200%);
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+    transform: none;
+}
+
+.workspace:focus {
+    outline: none;
+}
+
+.today-selector-checkbox:hover {
+    border-color: var(--color-midnight-blue);
+}
+
+.today-selector-checkbox:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 3px;
+}
+
+.outcome-option input:checked + span {
+    font-weight: 600;
+}
+
+.table-scroll th {
+    font-weight: 600;
 }

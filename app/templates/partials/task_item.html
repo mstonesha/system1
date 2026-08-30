@@ -80,7 +80,15 @@
 
                     {% include "partials/csrf_field.html" %}
 
+                    <label
+                        class="visually-hidden"
+                        for="edit-title-{{ task.id }}"
+                    >
+                        Edit title for {{ task.title }}
+                    </label>
+
                     <input
+                        id="edit-title-{{ task.id }}"
                         type="text"
                         name="title"
                         value="{{ task.title }}"
@@ -124,6 +132,7 @@
 
             <div
                 class="task-action-group"
+                role="group"
                 aria-label="Actions for {{ task.title }}"
             >
 
@@ -316,7 +325,15 @@
 
             {% include "partials/csrf_field.html" %}
 
+            <label
+                class="visually-hidden"
+                for="subtask-title-{{ task.id }}"
+            >
+                Subtask name
+            </label>
+
             <input
+                id="subtask-title-{{ task.id }}"
                 type="text"
                 name="title"
                 placeholder="Subtask name"

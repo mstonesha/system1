@@ -5,6 +5,7 @@ Daily Plan | {{ settings.app_name }}
 {% endblock %}
 
 {% block today_nav_class %}active{% endblock %}
+{% block today_nav_current %}aria-current="page"{% endblock %}
 
 {% macro render_task_node(node) %}
 
@@ -43,13 +44,19 @@ Daily Plan | {{ settings.app_name }}
                         value="{{ selected_date }}"
                     >
 
-                    <input
-                        class="today-selector-checkbox"
-                        type="checkbox"
-                        checked
-                        aria-label="Remove {{ task.title }} from this day"
-                        onchange="this.form.submit()"
+                    <label
+                        class="today-checkbox-control"
+                        for="select-task-{{ task.id }}"
                     >
+                        <input
+                            id="select-task-{{ task.id }}"
+                            class="today-selector-checkbox"
+                            type="checkbox"
+                            checked
+                            aria-label="Remove {{ task.title }} from this day"
+                            onchange="this.form.submit()"
+                        >
+                    </label>
 
                 </form>
 
@@ -87,16 +94,22 @@ Daily Plan | {{ settings.app_name }}
                         "
                     >
 
-                    <input
-                        class="today-selector-checkbox"
-                        type="checkbox"
-                        aria-label="Add {{ task.title }} to this day"
-                        onchange="
-                            if (this.checked) {
-                                this.form.submit();
-                            }
-                        "
+                    <label
+                        class="today-checkbox-control"
+                        for="select-task-{{ task.id }}"
                     >
+                        <input
+                            id="select-task-{{ task.id }}"
+                            class="today-selector-checkbox"
+                            type="checkbox"
+                            aria-label="Add {{ task.title }} to this day"
+                            onchange="
+                                if (this.checked) {
+                                    this.form.submit();
+                                }
+                            "
+                        >
+                    </label>
 
                 </form>
 
@@ -114,7 +127,8 @@ Daily Plan | {{ settings.app_name }}
                     class="carry-forward-marker"
                     title="Unfinished from the previous day"
                 >
-                    ↺ Yesterday ·
+                    <span aria-hidden="true">↺</span>
+                    Yesterday ·
                     {{ carry_forward.planned_sessions or 1 }}
                     {% if (carry_forward.planned_sessions or 1) == 1 %}
                         planned session
@@ -175,7 +189,8 @@ Daily Plan | {{ settings.app_name }}
                 href="/today/page?target_date={{ previous_date }}"
                 class="date-nav-link"
             >
-                ← Previous
+                <span aria-hidden="true">←</span>
+                Previous
             </a>
 
             <a
@@ -189,7 +204,8 @@ Daily Plan | {{ settings.app_name }}
                 href="/today/page?target_date={{ next_date }}"
                 class="date-nav-link"
             >
-                Next →
+                Next
+                <span aria-hidden="true">→</span>
             </a>
 
         </nav>
@@ -305,10 +321,10 @@ Daily Plan | {{ settings.app_name }}
 
                             <div class="queue-order-controls">
 
-                                <span
-                                    class="queue-position"
-                                    aria-label="Queue position {{ loop.index }}"
-                                >
+                                <span class="queue-position">
+                                    <span class="visually-hidden">
+                                        Queue position
+                                    </span>
                                     {{ loop.index }}
                                 </span>
 
@@ -332,7 +348,7 @@ Daily Plan | {{ settings.app_name }}
                                         title="Move up"
                                         {% if loop.first %}disabled{% endif %}
                                     >
-                                        ↑
+                                        <span aria-hidden="true">↑</span>
                                     </button>
 
                                 </form>
@@ -358,7 +374,7 @@ Daily Plan | {{ settings.app_name }}
                                         title="Move down"
                                         {% if loop.last %}disabled{% endif %}
                                     >
-                                        ↓
+                                        <span aria-hidden="true">↓</span>
                                     </button>
 
                                 </form>

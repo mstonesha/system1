@@ -48,6 +48,10 @@
     {% endif %}
 >
 
+    <a class="skip-link" href="#main-content">
+        Skip to main content
+    </a>
+
     <div class="app-shell">
 
         <header class="app-header">
@@ -100,6 +104,7 @@
             <a
                 href="/"
                 class="nav-tab {% block task_nav_class %}{% endblock %}"
+                {% block task_nav_current %}{% endblock %}
             >
                 Task List
             </a>
@@ -107,6 +112,7 @@
             <a
                 href="/today/page"
                 class="nav-tab {% block today_nav_class %}{% endblock %}"
+                {% block today_nav_current %}{% endblock %}
             >
                 Daily Plan
             </a>
@@ -114,6 +120,7 @@
             <a
                 href="/timer/"
                 class="nav-tab {% block timer_nav_class %}{% endblock %}"
+                {% block timer_nav_current %}{% endblock %}
             >
                 Session Timer
             </a>
@@ -122,7 +129,7 @@
         {% endblock %}
 
 
-        <main class="workspace">
+        <main id="main-content" class="workspace" tabindex="-1">
 
             {% block content %}
             {% endblock %}
