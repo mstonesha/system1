@@ -1,0 +1,3 @@
+# Shell scripts run on Linux (VPS host and the test container).
+# Force LF even when Windows core.autocrlf converts other text to CRLF.
+*.sh text eol=lf

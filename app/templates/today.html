@@ -437,37 +437,41 @@ Daily Plan | {{ settings.app_name }}
                                     Planned sessions
                                 </label>
 
-                                <input
-                                    id="planned-sessions-{{ daily_task.id }}"
-                                    class="session-count-input"
-                                    type="number"
-                                    name="planned_sessions"
-                                    min="1"
-                                    value="{{ daily_task.planned_sessions or 1 }}"
-                                    required
-                                >
+                                <div class="queue-session-controls">
 
-                                {% if has_planned_count %}
-
-                                    <button
-                                        type="submit"
-                                        class="queue-commit"
-                                        aria-label="Update planned sessions for {{ daily_task.task.title }}"
+                                    <input
+                                        id="planned-sessions-{{ daily_task.id }}"
+                                        class="session-count-input"
+                                        type="number"
+                                        name="planned_sessions"
+                                        min="1"
+                                        value="{{ daily_task.planned_sessions or 1 }}"
+                                        required
                                     >
-                                        Update plan
-                                    </button>
 
-                                {% else %}
+                                    {% if has_planned_count %}
 
-                                    <button
-                                        type="submit"
-                                        class="queue-commit"
-                                        aria-label="Save planned sessions for {{ daily_task.task.title }}"
-                                    >
-                                        Save plan
-                                    </button>
+                                        <button
+                                            type="submit"
+                                            class="queue-commit"
+                                            aria-label="Update planned sessions for {{ daily_task.task.title }}"
+                                        >
+                                            Update plan
+                                        </button>
 
-                                {% endif %}
+                                    {% else %}
+
+                                        <button
+                                            type="submit"
+                                            class="queue-commit"
+                                            aria-label="Save planned sessions for {{ daily_task.task.title }}"
+                                        >
+                                            Save plan
+                                        </button>
+
+                                    {% endif %}
+
+                                </div>
 
                             </form>
 
