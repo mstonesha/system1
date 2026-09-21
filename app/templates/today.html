@@ -63,29 +63,6 @@ Daily Plan | {{ settings.app_name }}
     <div class="today-workspace">
 
         <section
-            class="today-pane today-source-pane"
-            aria-labelledby="source-tasks-heading"
-        >
-
-            <header class="today-pane-header">
-
-                <h2 id="source-tasks-heading">
-                    Task List
-                </h2>
-
-                <span class="today-pane-note">
-                    Select tasks for this day
-                </span>
-
-            </header>
-
-
-            {% include "partials/today_source_body.html" %}
-
-        </section>
-
-
-        <section
             class="today-pane today-queue-pane"
             aria-labelledby="today-queue-heading"
         >
@@ -104,6 +81,29 @@ Daily Plan | {{ settings.app_name }}
 
 
             {% include "partials/today_queue_body.html" %}
+
+        </section>
+
+
+        <section
+            class="today-pane today-source-pane"
+            aria-labelledby="source-tasks-heading"
+        >
+
+            <header class="today-pane-header">
+
+                <h2 id="source-tasks-heading">
+                    Task List
+                </h2>
+
+                <span class="today-pane-note">
+                    Select tasks for this day
+                </span>
+
+            </header>
+
+
+            {% include "partials/today_source_body.html" %}
 
         </section>
 

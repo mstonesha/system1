@@ -1289,6 +1289,21 @@ def test_today_page_selection_forms_use_htmx_workspace_bodies(
     assert "this.form.submit()" not in page.text
 
 
+def test_today_page_reading_order_puts_queue_before_source_tree(
+    client,
+):
+    page = client.get("/today/page")
+    queue_at = page.text.find('id="today-queue-heading"')
+    source_at = page.text.find('id="source-tasks-heading"')
+
+    assert page.status_code == 200
+    assert queue_at != -1
+    assert source_at != -1
+    assert queue_at < source_at
+    assert 'class="today-pane today-queue-pane"' in page.text
+    assert 'class="today-pane today-source-pane"' in page.text
+
+
 def test_add_from_page_non_htmx_redirects(
     client,
     db,
