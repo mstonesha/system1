@@ -1676,6 +1676,20 @@ button[type="submit"].primary:hover {
 }
 
 
+@media (max-width: 480px) {
+
+    .task-children {
+        margin-left: 0.4rem;
+        padding-left: 0.9rem;
+    }
+
+    .task-children > .task-item::before {
+        left: -0.45rem;
+        width: 0.45rem;
+    }
+}
+
+
 /* --------------------------------------------------
    Utility classes
 -------------------------------------------------- */
