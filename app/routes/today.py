@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Annotated
 
 from fastapi import APIRouter, Form, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.services.today import (
     get_daily_tasks_for_date,
     move_daily_task,
     plan_display_totals,
+    reorder_daily_tasks,
     remove_task_from_day,
     update_planned_sessions,
 )
@@ -423,6 +425,55 @@ def move_daily_task_on_page(
         url=f"/today/page?target_date={selected_date}",
         status_code=303,
     )
+
+
+@router.post("/reorder")
+def reorder_daily_tasks_on_page(
+    request: Request,
+    target_date: date = Form(...),
+    daily_task_id: Annotated[list[int], Form()] = [],
+    db: Session = Depends(get_db),
+):
+    is_htmx = (
+        request.headers.get("HX-Request", "").lower()
+        == "true"
+    )
+
+    try:
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=daily_task_id,
+        )
+    except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    if is_htmx:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/today_queue.html",
+            context={
+                "daily_tasks": get_daily_tasks_for_date(
+                    db=db,
+                    target_date=target_date,
+                ),
+                "selected_date": target_date,
+            },
+        )
+
+    return RedirectResponse(
+        url=f"/today/page?target_date={target_date}",
+        status_code=303,
+    )
+
 
 @router.post("/carry-forward")
 def carry_forward_task(

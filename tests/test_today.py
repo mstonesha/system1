@@ -15,6 +15,7 @@ from app.services.today import (
     add_task_to_day,
     get_daily_tasks_for_date,
     remove_task_from_day,
+    reorder_daily_tasks,
     update_planned_sessions,
 )
 from app.time import today
@@ -1685,4 +1686,590 @@ def test_htmx_remove_from_day_conflict_returns_html(
 
     db.refresh(daily_task)
     assert daily_task.state == "planned"
+
+
+def _planned_queue(db, target_date):
+    return get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    )
+
+
+def _add_named_queue(db, make_task, titles, target_date):
+    return [
+        add_task_to_day(
+            db=db,
+            task=make_task(title),
+            target_date=target_date,
+            planned_sessions=1,
+        )
+        for title in titles
+    ]
+
+
+def test_reorder_daily_tasks_applies_full_permutation(
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+    first.task.sort_order = 9
+    db.commit()
+
+    reordered = reorder_daily_tasks(
+        db=db,
+        target_date=target_date,
+        ordered_ids=[third.id, first.id, second.id],
+    )
+
+    assert [item.task.title for item in reordered] == [
+        "Gamma",
+        "Alpha",
+        "Beta",
+    ]
+    assert [item.sort_order for item in reordered] == [0, 1, 2]
+    assert [item.state for item in reordered] == [
+        "planned",
+        "planned",
+        "planned",
+    ]
+    assert [item.planned_sessions for item in reordered] == [
+        1,
+        1,
+        1,
+    ]
+
+    db.refresh(first.task)
+    assert first.task.sort_order == 9
+
+
+def test_reorder_daily_tasks_moves_first_to_last(
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+
+    reordered = reorder_daily_tasks(
+        db=db,
+        target_date=target_date,
+        ordered_ids=[second.id, third.id, first.id],
+    )
+
+    assert [item.task.title for item in reordered] == [
+        "Beta",
+        "Gamma",
+        "Alpha",
+    ]
+    assert [item.sort_order for item in reordered] == [0, 1, 2]
+
+
+def test_reorder_daily_tasks_moves_last_to_first(
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+
+    reordered = reorder_daily_tasks(
+        db=db,
+        target_date=target_date,
+        ordered_ids=[third.id, first.id, second.id],
+    )
+
+    assert [item.task.title for item in reordered] == [
+        "Gamma",
+        "Alpha",
+        "Beta",
+    ]
+    assert [item.sort_order for item in reordered] == [0, 1, 2]
+
+
+def test_reorder_daily_tasks_does_not_change_other_dates(
+    db,
+    make_task,
+):
+    target_date = today()
+    yesterday = target_date - timedelta(days=1)
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+    other = add_task_to_day(
+        db=db,
+        task=make_task("Yesterday item"),
+        target_date=yesterday,
+        planned_sessions=2,
+    )
+    other.sort_order = 7
+    db.commit()
+
+    reorder_daily_tasks(
+        db=db,
+        target_date=target_date,
+        ordered_ids=[third.id, first.id, second.id],
+    )
+
+    db.refresh(other)
+    assert other.sort_order == 7
+    assert other.date == yesterday
+    assert [item.task.title for item in _planned_queue(db, yesterday)] == [
+        "Yesterday item",
+    ]
+
+
+def test_reorder_daily_tasks_rejects_duplicates_without_writing(
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[third.id, third.id, first.id],
+        )
+
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Alpha", "Beta", "Gamma"]
+    assert [
+        item.sort_order
+        for item in _planned_queue(db, target_date)
+    ] == [0, 1, 2]
+
+
+def test_reorder_daily_tasks_rejects_omitted_id_without_writing(
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[third.id, first.id],
+        )
+
+    assert [
+        item.sort_order
+        for item in _planned_queue(db, target_date)
+    ] == [0, 1, 2]
+
+
+def test_reorder_daily_tasks_rejects_empty_payload_when_queue_is_not_empty(
+    db,
+    make_task,
+):
+    target_date = today()
+    _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[],
+        )
+
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Alpha", "Beta"]
+
+
+def test_reorder_daily_tasks_rejects_wrong_day_and_extra_ids(
+    db,
+    make_task,
+):
+    target_date = today()
+    yesterday = target_date - timedelta(days=1)
+    first, second = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+    other = add_task_to_day(
+        db=db,
+        task=make_task("Other day"),
+        target_date=yesterday,
+        planned_sessions=1,
+    )
+
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[other.id, first.id],
+        )
+
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Alpha", "Beta"]
+    db.refresh(other)
+    assert other.sort_order == 0
+
+
+def test_reorder_daily_tasks_rejects_removed_completed_and_cancelled(
+    db,
+    make_task,
+    make_daily_task,
+):
+    target_date = today()
+    first, second = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+    removed = add_task_to_day(
+        db=db,
+        task=make_task("Removed item"),
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    remove_task_from_day(db, removed)
+    completed = make_daily_task(
+        make_task("Completed item"),
+        target_date=target_date,
+        state="completed",
+        sort_order=9,
+    )
+    cancelled = add_task_to_day(
+        db=db,
+        task=make_task("Cancelled item"),
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    cancel_task(db, cancelled.task)
+
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[removed.id, first.id, second.id],
+        )
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[completed.id, first.id, second.id],
+        )
+    with pytest.raises(ValueError, match="exactly once"):
+        reorder_daily_tasks(
+            db=db,
+            target_date=target_date,
+            ordered_ids=[cancelled.id, first.id, second.id],
+        )
+
+    queued = _planned_queue(db, target_date)
+    assert [item.task.title for item in queued] == [
+        "Alpha",
+        "Beta",
+    ]
+    assert [item.sort_order for item in queued] == [0, 1]
+    db.refresh(completed)
+    assert completed.sort_order == 9
+    db.refresh(removed)
+    assert removed.state == "removed"
+
+
+def test_today_page_queue_exposes_drag_handle_and_keeps_move_forms(
+    client,
+    db,
+    make_task,
+):
+    daily_task = add_task_to_day(
+        db=db,
+        task=make_task("Draggable item"),
+        target_date=today(),
+        planned_sessions=1,
+    )
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert "/static/today_queue.js" in page.text
+    assert 'class="queue-drag-handle"' in page.text
+    assert 'draggable="true"' in page.text
+    assert (
+        'aria-label="Drag to reorder Draggable item"'
+        in page.text
+    )
+    assert (
+        f'data-daily-task-id="{daily_task.id}"'
+        in page.text
+    )
+    assert 'data-target-date="' in page.text
+    assert 'hx-target="ol.today-queue"' in page.text
+    assert (
+        f'hx-post="/today/{daily_task.id}/move"'
+        in page.text
+    )
+    assert "tabindex" not in page.text.split(
+        'class="queue-drag-handle"',
+        1,
+    )[1].split(">", 1)[0]
+
+
+def test_reorder_non_htmx_redirects(
+    client,
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta", "Gamma"],
+        target_date,
+    )
+
+    response = client.post(
+        "/today/reorder",
+        data={
+            "target_date": str(target_date),
+            "daily_task_id": [
+                str(third.id),
+                str(first.id),
+                str(second.id),
+            ],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == f"/today/page?target_date={target_date}"
+    )
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Gamma", "Alpha", "Beta"]
+
+
+def test_htmx_reorder_returns_queue_partial_in_submitted_order(
+    client,
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second, third = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha item", "Beta item", "Gamma item"],
+        target_date,
+    )
+
+    response = client.post(
+        "/today/reorder",
+        data={
+            "target_date": str(target_date),
+            "daily_task_id": [
+                str(third.id),
+                str(first.id),
+                str(second.id),
+            ],
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert _queue_rows(response.text) == [
+        ("1", "Gamma item"),
+        ("2", "Alpha item"),
+        ("3", "Beta item"),
+    ]
+    assert 'class="today-queue"' in response.text
+    assert "source-tasks-heading" not in response.text
+    assert "date-navigation" not in response.text
+    assert "today-plan-summary" not in response.text
+    assert "disabled" in _move_button(
+        response.text,
+        "Gamma item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Gamma item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Alpha item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Alpha item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Beta item",
+        "up",
+    )
+    assert "disabled" in _move_button(
+        response.text,
+        "Beta item",
+        "down",
+    )
+    assert (
+        f'hx-post="/today/{third.id}/move"'
+        in response.text
+    )
+    assert 'hx-target="ol.today-queue"' in response.text
+    assert 'hx-swap="outerHTML"' in response.text
+    assert 'class="queue-drag-handle"' in response.text
+    assert 'name="csrf_token"' in response.text
+
+
+def test_htmx_reorder_conflict_returns_html(
+    client,
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+
+    response = client.post(
+        "/today/reorder",
+        data={
+            "target_date": str(target_date),
+            "daily_task_id": [
+                str(first.id),
+                str(first.id),
+            ],
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert "text/html" in response.headers["content-type"]
+    assert (
+        response.text
+        == (
+            "Queue order must include each planned task "
+            "for this day exactly once."
+        )
+    )
+    assert "source-tasks-heading" not in response.text
+    assert "Daily Plan" not in response.text
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Alpha", "Beta"]
+
+
+def test_reorder_non_htmx_conflict_remains_json(
+    client,
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+
+    response = client.post(
+        "/today/reorder",
+        data={
+            "target_date": str(target_date),
+            "daily_task_id": [str(second.id)],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "Queue order must include each planned task "
+            "for this day exactly once."
+        ),
+    }
+    assert [
+        item.sort_order
+        for item in _planned_queue(db, target_date)
+    ] == [0, 1]
+
+
+def test_reorder_requires_csrf(
+    client,
+    db,
+    make_task,
+):
+    target_date = today()
+    first, second = _add_named_queue(
+        db,
+        make_task,
+        ["Alpha", "Beta"],
+        target_date,
+    )
+    client.inject_csrf = False
+
+    response = client.post(
+        "/today/reorder",
+        data={
+            "target_date": str(target_date),
+            "daily_task_id": [
+                str(second.id),
+                str(first.id),
+            ],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert [
+        item.task.title
+        for item in _planned_queue(db, target_date)
+    ] == ["Alpha", "Beta"]
 

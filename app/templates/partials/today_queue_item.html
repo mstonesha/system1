@@ -5,9 +5,20 @@
     class="today-queue-item"
     data-queue-position="{{ queue_position }}"
     data-task-title="{{ daily_task.task.title }}"
+    data-daily-task-id="{{ daily_task.id }}"
+    draggable="false"
 >
 
     <div class="queue-order-controls">
+
+        <span
+            class="queue-drag-handle"
+            draggable="true"
+            aria-label="Drag to reorder {{ daily_task.task.title }}"
+            title="Drag to reorder"
+        >
+            <span aria-hidden="true">⋮⋮</span>
+        </span>
 
         <span class="queue-position">
             <span class="visually-hidden">

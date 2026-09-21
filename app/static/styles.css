@@ -929,6 +929,37 @@ button[type="submit"].primary:hover {
     margin: 0;
 }
 
+.queue-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 1.1rem;
+    margin-right: 0.2rem;
+
+    color: var(--color-gray);
+
+    cursor: grab;
+
+    font-size: 0.85rem;
+    letter-spacing: -0.08em;
+    line-height: 1;
+
+    user-select: none;
+}
+
+.queue-drag-handle:active {
+    cursor: grabbing;
+}
+
+.today-queue-item.is-dragging {
+    opacity: 0.45;
+}
+
+.today-queue.is-reordering {
+    outline: 1px dashed var(--border-color);
+}
+
 .queue-arrow {
     width: var(--control-touch-min);
     min-width: var(--control-touch-min);

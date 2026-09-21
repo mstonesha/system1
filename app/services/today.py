@@ -251,6 +251,55 @@ def move_daily_task(
 
     return daily_task
 
+
+def reorder_daily_tasks(
+    db: Session,
+    target_date: date,
+    ordered_ids: list[int],
+) -> list[DailyTask]:
+    """Replace executable queue order with a full permutation.
+
+    ``ordered_ids`` must be the complete set of DailyTask ids
+    returned by ``get_daily_tasks_for_date`` for ``target_date``,
+    each exactly once, in the desired display order. On success,
+    those rows are rewritten to dense ``sort_order`` 0..n-1.
+    Other dates, non-executable rows, state, and planned_sessions
+    are left unchanged.
+    """
+    daily_tasks = get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    )
+    expected_ids = [
+        daily_task.id
+        for daily_task in daily_tasks
+    ]
+
+    if (
+        len(ordered_ids) != len(set(ordered_ids))
+        or set(ordered_ids) != set(expected_ids)
+    ):
+        raise ValueError(
+            "Queue order must include each planned task "
+            "for this day exactly once."
+        )
+
+    by_id = {
+        daily_task.id: daily_task
+        for daily_task in daily_tasks
+    }
+
+    for index, daily_task_id in enumerate(ordered_ids):
+        by_id[daily_task_id].sort_order = index
+
+    db.commit()
+
+    return get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    )
+
+
 def get_carry_forward_candidates(
     db: Session,
     target_date: date,
