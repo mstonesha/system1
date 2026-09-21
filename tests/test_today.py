@@ -1268,3 +1268,421 @@ def test_today_page_queue_controls_have_accessible_names(
     assert "Queue position" in html
     assert 'aria-label="Update planned sessions for Alpha item"' in html
 
+
+def test_today_page_selection_forms_use_htmx_workspace_bodies(
+    client,
+    make_task,
+):
+    make_task("Selectable work")
+
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert 'hx-post="/today/add-from-page"' in page.text
+    assert 'hx-target="#today-source-body"' in page.text
+    assert 'hx-swap="outerHTML"' in page.text
+    assert 'hx-trigger="change"' in page.text
+    assert 'id="today-source-body"' in page.text
+    assert 'id="today-queue-body"' in page.text
+    assert "hx-swap-oob" not in page.text
+    assert "this.form.submit()" not in page.text
+
+
+def test_add_from_page_non_htmx_redirects(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("New pick")
+    target_date = today()
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(task.id),
+            "target_date": str(target_date),
+            "planned_sessions": "1",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == f"/today/page?target_date={target_date}"
+    )
+
+    queued = get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    )
+    assert [item.task.title for item in queued] == [
+        "New pick",
+    ]
+    assert queued[0].planned_sessions == 1
+
+
+def test_remove_from_page_non_htmx_redirects(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Take off")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/remove-from-page",
+        data={"target_date": str(target_date)},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == f"/today/page?target_date={target_date}"
+    )
+    assert get_daily_tasks_for_date(
+        db=db,
+        target_date=target_date,
+    ) == []
+
+
+def test_htmx_add_to_day_syncs_tree_queue_and_summary(
+    client,
+    db,
+    make_task,
+):
+    existing = make_task("Already queued")
+    added = make_task("Newly selected")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=existing,
+        target_date=target_date,
+        planned_sessions=2,
+    )
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(added.id),
+            "target_date": str(target_date),
+            "planned_sessions": "1",
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == [
+        ("1", "Already queued"),
+        ("2", "Newly selected"),
+    ]
+    assert (
+        'aria-label="Remove Newly selected from this day"'
+        in response.text
+    )
+    assert (
+        'aria-label="Add Newly selected to this day"'
+        not in response.text
+    )
+    assert re.search(
+        r'id="select-task-'
+        + str(added.id)
+        + r'".*?checked',
+        response.text,
+        re.S,
+    )
+    assert "today-tree-item-selected" in response.text
+    assert "1 planned session · 25 min" in text
+    assert "3 planned sessions · 75 min" in text
+    assert 'id="today-source-body"' in response.text
+    assert 'id="today-queue-body"' in response.text
+    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert "source-tasks-heading" not in response.text
+    assert "date-navigation" not in response.text
+    assert "Nothing selected for this day." not in response.text
+    assert 'name="csrf_token"' in response.text
+
+
+def test_htmx_remove_from_day_syncs_tree_queue_and_summary(
+    client,
+    db,
+    make_task,
+):
+    kept = make_task("Stay on plan")
+    removed = make_task("Drop from plan")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=kept,
+        target_date=target_date,
+        planned_sessions=2,
+    )
+    daily_task = add_task_to_day(
+        db=db,
+        task=removed,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/remove-from-page",
+        data={"target_date": str(target_date)},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == [
+        ("1", "Stay on plan"),
+    ]
+    assert (
+        'aria-label="Add Drop from plan to this day"'
+        in response.text
+    )
+    assert (
+        'aria-label="Remove Drop from plan from this day"'
+        not in response.text
+    )
+    assert 'data-task-title="Drop from plan"' not in response.text
+    assert "2 planned sessions · 50 min" in text
+    assert "3 planned sessions" not in text
+    assert "Nothing selected for this day." not in response.text
+    assert "source-tasks-heading" not in response.text
+    assert "date-navigation" not in response.text
+
+
+def test_htmx_remove_last_item_shows_empty_queue_and_zero_summary(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Only item")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=2,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/remove-from-page",
+        data={"target_date": str(target_date)},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == []
+    assert "Nothing selected for this day." in response.text
+    assert 'class="today-queue"' not in response.text
+    assert "0 planned sessions · 0 min" in text
+    assert (
+        'aria-label="Add Only item to this day"'
+        in response.text
+    )
+
+
+def test_htmx_add_to_day_uses_carry_forward_planned_sessions(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Unfinished work")
+    target_date = today()
+    yesterday = target_date - timedelta(days=1)
+    add_task_to_day(
+        db=db,
+        task=task,
+        target_date=yesterday,
+        planned_sessions=3,
+    )
+
+    page = client.get("/today/page")
+    assert "carry-forward-marker" in page.text
+    assert "Yesterday · 3 planned sessions" in _collapsed(
+        page.text
+    )
+    assert (
+        'aria-label="Add Unfinished work to this day"'
+        in page.text
+    )
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(task.id),
+            "target_date": str(target_date),
+            "planned_sessions": "3",
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == [
+        ("1", "Unfinished work"),
+    ]
+    assert "carry-forward-marker" not in response.text
+    assert (
+        'aria-label="Remove Unfinished work from this day"'
+        in response.text
+    )
+    assert "3 planned sessions · 75 min" in text
+    assert "Update plan" in response.text
+
+
+def test_htmx_remove_from_day_restores_carry_forward_marker(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Still unfinished")
+    target_date = today()
+    yesterday = target_date - timedelta(days=1)
+    add_task_to_day(
+        db=db,
+        task=task,
+        target_date=yesterday,
+        planned_sessions=3,
+    )
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=3,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/remove-from-page",
+        data={"target_date": str(target_date)},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == []
+    assert "carry-forward-marker" in response.text
+    assert "Yesterday · 3 planned sessions" in text
+    assert (
+        'aria-label="Add Still unfinished to this day"'
+        in response.text
+    )
+    assert "today-tree-item-carry" in response.text
+    assert "0 planned sessions · 0 min" in text
+
+
+def test_htmx_add_to_day_conflict_returns_html(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Already there")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(task.id),
+            "target_date": str(target_date),
+            "planned_sessions": "1",
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert "text/html" in response.headers["content-type"]
+    assert (
+        response.text
+        == "This task is already on the selected day."
+    )
+    assert "source-tasks-heading" not in response.text
+    assert "Daily Plan" not in response.text
+    assert "date-navigation" not in response.text
+
+
+def test_add_from_page_non_htmx_conflict_still_json(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Already there")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(task.id),
+            "target_date": str(target_date),
+            "planned_sessions": "1",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "This task is already on the selected day.",
+    }
+
+
+def test_htmx_remove_from_day_conflict_returns_html(
+    client,
+    db,
+    make_task,
+    make_work_session,
+):
+    task = make_task("In progress")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    make_work_session(daily_task)
+
+    response = client.post(
+        f"/today/{daily_task.id}/remove-from-page",
+        data={"target_date": str(target_date)},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert "text/html" in response.headers["content-type"]
+    assert (
+        response.text
+        == "Cannot remove a task from the day while a work session is running."
+    )
+    assert "source-tasks-heading" not in response.text
+    assert "Daily Plan" not in response.text
+
+    db.refresh(daily_task)
+    assert daily_task.state == "planned"
+

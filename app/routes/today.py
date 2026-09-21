@@ -106,14 +106,10 @@ def remove_from_today(
         "daily_task_id": daily_task_id,
     }
 
-@router.get("/page")
-def today_page(
-    request: Request,
-    target_date: date | None = None,
-    db: Session = Depends(get_db),
-):
-    selected_date = target_date or today()
-
+def _daily_plan_context(
+    db: Session,
+    selected_date: date,
+) -> dict:
     previous_date = selected_date - timedelta(days=1)
     next_date = selected_date + timedelta(days=1)
 
@@ -199,34 +195,59 @@ def today_page(
         ),
     )
 
+    return {
+        "selected_date": selected_date,
+        "previous_date": previous_date,
+        "next_date": next_date,
+        "daily_tasks": daily_tasks,
+        "task_tree": task_tree,
+        "selected_task_ids": selected_task_ids,
+        "planned_by_task_id": planned_by_task_id,
+        "carry_forward_by_task_id":
+            carry_forward_by_task_id,
+        "plan_totals": plan_totals,
+    }
+
+
+@router.get("/page")
+def today_page(
+    request: Request,
+    target_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_date = target_date or today()
+
     return templates.TemplateResponse(
         request=request,
         name="today.html",
-        context={
-            "selected_date": selected_date,
-            "previous_date": previous_date,
-            "next_date": next_date,
-            "daily_tasks": daily_tasks,
-            "task_tree": task_tree,
-            "selected_task_ids": selected_task_ids,
-            "planned_by_task_id": planned_by_task_id,
-            "carry_forward_by_task_id":
-                carry_forward_by_task_id,
-            "plan_totals": plan_totals,
-        },
+        context=_daily_plan_context(
+            db,
+            selected_date,
+        ),
     )
 
 
 @router.post("/add-from-page")
 def add_to_today_from_page(
+    request: Request,
     task_id: int = Form(...),
     target_date: date = Form(...),
     planned_sessions: int | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    is_htmx = (
+        request.headers.get("HX-Request", "").lower()
+        == "true"
+    )
+
     task = db.get(Task, task_id)
 
     if task is None:
+        if is_htmx:
+            return HTMLResponse(
+                content="Task not found.",
+                status_code=404,
+            )
         raise HTTPException(
             status_code=404,
             detail="Task not found.",
@@ -240,9 +261,27 @@ def add_to_today_from_page(
             planned_sessions=planned_sessions,
         )
     except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
         raise HTTPException(
             status_code=409,
             detail=str(exc),
+        )
+
+    if is_htmx:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/today_selection.html",
+            context={
+                **_daily_plan_context(
+                    db,
+                    target_date,
+                ),
+                "swap_queue_oob": True,
+            },
         )
 
     return RedirectResponse(
@@ -326,7 +365,7 @@ def commit_planned_sessions(
                         settings.break_duration_minutes
                     ),
                 ),
-                "swap_oob": True,
+                "swap_summary_oob": True,
             },
         )
 
@@ -423,16 +462,27 @@ def carry_forward_task(
 
 @router.post("/{daily_task_id}/remove-from-page")
 def remove_from_today_page(
+    request: Request,
     daily_task_id: int,
     target_date: date = Form(...),
     db: Session = Depends(get_db),
 ):
+    is_htmx = (
+        request.headers.get("HX-Request", "").lower()
+        == "true"
+    )
+
     daily_task = db.get(
         DailyTask,
         daily_task_id,
     )
 
     if daily_task is None:
+        if is_htmx:
+            return HTMLResponse(
+                content="DailyTask not found.",
+                status_code=404,
+            )
         raise HTTPException(
             status_code=404,
             detail="DailyTask not found.",
@@ -444,9 +494,27 @@ def remove_from_today_page(
             daily_task=daily_task,
         )
     except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
         raise HTTPException(
             status_code=409,
             detail=str(exc),
+        )
+
+    if is_htmx:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/today_selection.html",
+            context={
+                **_daily_plan_context(
+                    db,
+                    target_date,
+                ),
+                "swap_queue_oob": True,
+            },
         )
 
     return RedirectResponse(

@@ -7,159 +7,6 @@ Daily Plan | {{ settings.app_name }}
 {% block today_nav_class %}active{% endblock %}
 {% block today_nav_current %}aria-current="page"{% endblock %}
 
-{% macro render_task_node(node) %}
-
-    {% set task = node.task %}
-    {% set is_selected = task.id in selected_task_ids %}
-    {% set carry_forward = carry_forward_by_task_id.get(task.id) %}
-
-    <li
-        class="
-            today-tree-item
-            {% if is_selected %}
-                today-tree-item-selected
-            {% elif carry_forward %}
-                today-tree-item-carry
-            {% endif %}
-        "
-    >
-
-        <div class="today-tree-row">
-
-            {% if is_selected %}
-
-                {% set daily_task = planned_by_task_id.get(task.id) %}
-
-                <form
-                    method="post"
-                    action="/today/{{ daily_task.id }}/remove-from-page"
-                    class="today-checkbox-form"
-                >
-
-                    {% include "partials/csrf_field.html" %}
-
-                    <input
-                        type="hidden"
-                        name="target_date"
-                        value="{{ selected_date }}"
-                    >
-
-                    <label
-                        class="today-checkbox-control"
-                        for="select-task-{{ task.id }}"
-                    >
-                        <input
-                            id="select-task-{{ task.id }}"
-                            class="today-selector-checkbox"
-                            type="checkbox"
-                            checked
-                            aria-label="Remove {{ task.title }} from this day"
-                            onchange="this.form.submit()"
-                        >
-                    </label>
-
-                </form>
-
-            {% else %}
-
-                <form
-                    method="post"
-                    action="/today/add-from-page"
-                    class="today-checkbox-form"
-                >
-
-                    {% include "partials/csrf_field.html" %}
-
-                    <input
-                        type="hidden"
-                        name="task_id"
-                        value="{{ task.id }}"
-                    >
-
-                    <input
-                        type="hidden"
-                        name="target_date"
-                        value="{{ selected_date }}"
-                    >
-
-                    <input
-                        type="hidden"
-                        name="planned_sessions"
-                        value="
-                            {% if carry_forward %}
-                                {{ carry_forward.planned_sessions or 1 }}
-                            {% else %}
-                                1
-                            {% endif %}
-                        "
-                    >
-
-                    <label
-                        class="today-checkbox-control"
-                        for="select-task-{{ task.id }}"
-                    >
-                        <input
-                            id="select-task-{{ task.id }}"
-                            class="today-selector-checkbox"
-                            type="checkbox"
-                            aria-label="Add {{ task.title }} to this day"
-                            onchange="
-                                if (this.checked) {
-                                    this.form.submit();
-                                }
-                            "
-                        >
-                    </label>
-
-                </form>
-
-            {% endif %}
-
-
-            <span class="today-tree-title">
-                {{ task.title }}
-            </span>
-
-
-            {% if carry_forward and not is_selected %}
-
-                <span
-                    class="carry-forward-marker"
-                    title="Unfinished from the previous day"
-                >
-                    <span aria-hidden="true">↺</span>
-                    Yesterday ·
-                    {{ carry_forward.planned_sessions or 1 }}
-                    {% if (carry_forward.planned_sessions or 1) == 1 %}
-                        planned session
-                    {% else %}
-                        planned sessions
-                    {% endif %}
-                </span>
-
-            {% endif %}
-
-        </div>
-
-
-        {% if node.children %}
-
-            <ul class="today-tree-children">
-
-                {% for child_node in node.children %}
-
-                    {{ render_task_node(child_node) }}
-
-                {% endfor %}
-
-            </ul>
-
-        {% endif %}
-
-    </li>
-
-{% endmacro %}
-
 
 {% block content %}
 
@@ -233,25 +80,7 @@ Daily Plan | {{ settings.app_name }}
             </header>
 
 
-            {% if task_tree %}
-
-                <ul class="today-task-tree">
-
-                    {% for node in task_tree %}
-
-                        {{ render_task_node(node) }}
-
-                    {% endfor %}
-
-                </ul>
-
-            {% else %}
-
-                <p class="today-empty">
-                    No active tasks.
-                </p>
-
-            {% endif %}
+            {% include "partials/today_source_body.html" %}
 
         </section>
 
@@ -274,28 +103,7 @@ Daily Plan | {{ settings.app_name }}
             </header>
 
 
-            {% include "partials/today_plan_summary.html" %}
-
-
-            {% if daily_tasks %}
-
-                {% include "partials/today_queue.html" %}
-
-            {% else %}
-
-                <div class="today-empty-state">
-
-                    <p>
-                        Nothing selected for this day.
-                    </p>
-
-                    <p class="muted">
-                        Select tasks from the Task List.
-                    </p>
-
-                </div>
-
-            {% endif %}
+            {% include "partials/today_queue_body.html" %}
 
         </section>
 

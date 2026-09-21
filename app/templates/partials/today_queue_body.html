@@ -1,0 +1,30 @@
+<div
+    id="today-queue-body"
+    {% if swap_queue_oob %}
+        hx-swap-oob="outerHTML"
+    {% endif %}
+>
+
+    {% include "partials/today_plan_summary.html" %}
+
+    {% if daily_tasks %}
+
+        {% include "partials/today_queue.html" %}
+
+    {% else %}
+
+        <div class="today-empty-state">
+
+            <p>
+                Nothing selected for this day.
+            </p>
+
+            <p class="muted">
+                Select tasks from the Task List.
+            </p>
+
+        </div>
+
+    {% endif %}
+
+</div>
