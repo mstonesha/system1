@@ -1,0 +1,175 @@
+{% set has_planned_count = daily_task.planned_sessions is not none %}
+
+<li
+    id="today-queue-item-{{ daily_task.id }}"
+    class="today-queue-item"
+    data-queue-position="{{ queue_position }}"
+    data-task-title="{{ daily_task.task.title }}"
+>
+
+    <div class="queue-order-controls">
+
+        <span class="queue-position">
+            <span class="visually-hidden">
+                Queue position
+            </span>
+            {{ queue_position }}
+        </span>
+
+        <form
+            method="post"
+            action="/today/{{ daily_task.id }}/move"
+            hx-post="/today/{{ daily_task.id }}/move"
+            hx-target="ol.today-queue"
+            hx-swap="outerHTML"
+        >
+
+            {% include "partials/csrf_field.html" %}
+
+            <input
+                type="hidden"
+                name="direction"
+                value="up"
+            >
+
+            <button
+                type="submit"
+                class="queue-arrow"
+                aria-label="Move {{ daily_task.task.title }} up"
+                title="Move up"
+                {% if is_first %}disabled{% endif %}
+            >
+                <span aria-hidden="true">↑</span>
+            </button>
+
+        </form>
+
+
+        <form
+            method="post"
+            action="/today/{{ daily_task.id }}/move"
+            hx-post="/today/{{ daily_task.id }}/move"
+            hx-target="ol.today-queue"
+            hx-swap="outerHTML"
+        >
+
+            {% include "partials/csrf_field.html" %}
+
+            <input
+                type="hidden"
+                name="direction"
+                value="down"
+            >
+
+            <button
+                type="submit"
+                class="queue-arrow"
+                aria-label="Move {{ daily_task.task.title }} down"
+                title="Move down"
+                {% if is_last %}disabled{% endif %}
+            >
+                <span aria-hidden="true">↓</span>
+            </button>
+
+        </form>
+
+    </div>
+
+
+    <div class="queue-task-copy">
+
+        <div class="queue-task-title">
+            {% set ancestry = task_ancestry_label(daily_task.task) %}
+            {% if ancestry %}
+                <span class="task-ancestry">{{ ancestry }}{{ task_path_separator }}</span>
+            {% endif %}
+            {{ daily_task.task.title }}
+        </div>
+
+        {% if has_planned_count %}
+
+            <p class="queue-task-effort">
+                {{ daily_task.planned_sessions }}
+                {% if daily_task.planned_sessions == 1 %}
+                    planned session
+                {% else %}
+                    planned sessions
+                {% endif %}
+                ·
+                {{ daily_task.planned_sessions * settings.focus_session_minutes }} min
+            </p>
+
+        {% else %}
+
+            <p class="queue-task-effort">
+                Planned sessions not set
+            </p>
+
+        {% endif %}
+
+    </div>
+
+
+    <form
+        method="post"
+        action="/today/{{ daily_task.id }}/commit-sessions"
+        class="queue-session-form"
+        hx-post="/today/{{ daily_task.id }}/commit-sessions"
+        hx-target="#today-queue-item-{{ daily_task.id }}"
+        hx-swap="outerHTML"
+    >
+
+        {% include "partials/csrf_field.html" %}
+
+        <input
+            type="hidden"
+            name="target_date"
+            value="{{ selected_date }}"
+        >
+
+        <label
+            for="planned-sessions-{{ daily_task.id }}"
+            class="session-label"
+        >
+            Planned sessions
+        </label>
+
+        <div class="queue-session-controls">
+
+            <input
+                id="planned-sessions-{{ daily_task.id }}"
+                class="session-count-input"
+                type="number"
+                name="planned_sessions"
+                min="1"
+                value="{{ daily_task.planned_sessions or 1 }}"
+                required
+            >
+
+            {% if has_planned_count %}
+
+                <button
+                    type="submit"
+                    class="queue-commit"
+                    aria-label="Update planned sessions for {{ daily_task.task.title }}"
+                >
+                    Update plan
+                </button>
+
+            {% else %}
+
+                <button
+                    type="submit"
+                    class="queue-commit"
+                    aria-label="Save planned sessions for {{ daily_task.task.title }}"
+                >
+                    Save plan
+                </button>
+
+            {% endif %}
+
+        </div>
+
+    </form>
+
+</li>

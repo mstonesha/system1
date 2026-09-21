@@ -455,6 +455,208 @@ def test_commit_sessions_can_overwrite_an_existing_planned_count(
     assert "Update plan" in page.text
 
 
+def test_today_page_commit_forms_use_htmx_row_swap(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Queued item")
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=today(),
+        planned_sessions=None,
+    )
+
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert (
+        f'hx-post="/today/{daily_task.id}/commit-sessions"'
+        in page.text
+    )
+    assert (
+        f'hx-target="#today-queue-item-{daily_task.id}"'
+        in page.text
+    )
+    assert 'hx-swap="outerHTML"' in page.text
+    assert "source-tasks-heading" in page.text
+    assert "today-plan-summary" in page.text
+    assert "hx-swap-oob" not in page.text
+
+
+def test_htmx_save_plan_returns_row_and_oob_summary(
+    client,
+    db,
+    make_task,
+):
+    saved = make_task("Saved item")
+    other = make_task("Other item")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=saved,
+        target_date=target_date,
+        planned_sessions=None,
+    )
+    add_task_to_day(
+        db=db,
+        task=other,
+        target_date=target_date,
+        planned_sessions=2,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/commit-sessions",
+        data={
+            "planned_sessions": "3",
+            "target_date": str(target_date),
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == [
+        ("1", "Saved item"),
+    ]
+    assert 'id="today-queue-item-' in response.text
+    assert "Save plan" not in response.text
+    assert "Update plan" in response.text
+    assert 'value="3"' in response.text
+    assert "3 planned sessions · 75 min" in text
+    assert "Planned sessions not set" not in response.text
+    assert "source-tasks-heading" not in response.text
+    assert 'data-task-title="Other item"' not in response.text
+    assert 'id="today-plan-summary"' in response.text
+    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert "5 planned sessions · 125 min" in text
+    assert (
+        "Including breaks between sessions: 145 min"
+        in text
+    )
+    assert 'name="csrf_token"' in response.text
+
+    db.refresh(daily_task)
+    assert daily_task.planned_sessions == 3
+
+
+def test_htmx_update_plan_returns_row_and_oob_summary(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Revise item")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/commit-sessions",
+        data={
+            "planned_sessions": "4",
+            "target_date": str(target_date),
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    text = _collapsed(response.text)
+    assert _queue_rows(response.text) == [
+        ("1", "Revise item"),
+    ]
+    assert "Save plan" not in response.text
+    assert "Update plan" in response.text
+    assert 'value="4"' in response.text
+    assert "4 planned sessions · 100 min" in text
+    assert "1 planned session · 25 min" not in text
+    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert (
+        "Including breaks between sessions: 115 min"
+        in text
+    )
+    assert "source-tasks-heading" not in response.text
+
+    db.refresh(daily_task)
+    assert daily_task.planned_sessions == 4
+
+
+def test_htmx_commit_sessions_rejects_non_positive_count(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Keep unset")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=None,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/commit-sessions",
+        data={
+            "planned_sessions": "0",
+            "target_date": str(target_date),
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert "text/html" in response.headers["content-type"]
+    assert (
+        response.text
+        == "Planned sessions must be at least 1."
+    )
+    assert "source-tasks-heading" not in response.text
+    assert "Daily Plan" not in response.text
+    assert "today-plan-summary" not in response.text
+
+    db.refresh(daily_task)
+    assert daily_task.planned_sessions is None
+
+
+def test_commit_sessions_non_htmx_rejects_non_positive_count(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Keep original")
+    target_date = today()
+    daily_task = add_task_to_day(
+        db=db,
+        task=task,
+        target_date=target_date,
+        planned_sessions=2,
+    )
+
+    response = client.post(
+        f"/today/{daily_task.id}/commit-sessions",
+        data={
+            "planned_sessions": "0",
+            "target_date": str(target_date),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Planned sessions must be at least 1.",
+    }
+
+    db.refresh(daily_task)
+    assert daily_task.planned_sessions == 2
+
+
 def test_today_page_queue_numbers_follow_existing_order(
     client,
     db,
@@ -521,6 +723,191 @@ def test_today_page_queue_numbers_follow_reorder(
         ("1", "Beta item"),
         ("2", "Alpha item"),
     ]
+
+
+def _move_button(html: str, title: str, direction: str) -> str:
+    match = re.search(
+        rf'aria-label="Move {re.escape(title)} {direction}"(.*?)>',
+        html,
+        re.S,
+    )
+    assert match is not None
+    return match.group(1)
+
+
+def test_today_page_move_forms_use_htmx_queue_swap(
+    client,
+    db,
+    make_task,
+):
+    task = make_task("Queued item")
+    add_task_to_day(
+        db=db,
+        task=task,
+        target_date=today(),
+        planned_sessions=1,
+    )
+
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert 'hx-target="ol.today-queue"' in page.text
+    assert 'hx-swap="outerHTML"' in page.text
+    assert 'hx-post="/today/' in page.text
+    assert 'source-tasks-heading' in page.text
+    assert "today-plan-summary" in page.text
+
+
+def test_htmx_move_up_returns_reordered_queue_partial(
+    client,
+    db,
+    make_task,
+):
+    first = make_task("Alpha item")
+    second = make_task("Beta item")
+    third = make_task("Gamma item")
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=first,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    add_task_to_day(
+        db=db,
+        task=second,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    later = add_task_to_day(
+        db=db,
+        task=third,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{later.id}/move",
+        data={"direction": "up"},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert _queue_rows(response.text) == [
+        ("1", "Alpha item"),
+        ("2", "Gamma item"),
+        ("3", "Beta item"),
+    ]
+    assert 'class="today-queue"' in response.text
+    assert "source-tasks-heading" not in response.text
+    assert "today-plan-summary" not in response.text
+    assert "disabled" in _move_button(
+        response.text,
+        "Alpha item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Alpha item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Gamma item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Gamma item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Beta item",
+        "up",
+    )
+    assert "disabled" in _move_button(
+        response.text,
+        "Beta item",
+        "down",
+    )
+    assert 'name="csrf_token"' in response.text
+
+
+def test_htmx_move_down_returns_reordered_queue_partial(
+    client,
+    db,
+    make_task,
+):
+    first = make_task("Alpha item")
+    second = make_task("Beta item")
+    third = make_task("Gamma item")
+    target_date = today()
+    earliest = add_task_to_day(
+        db=db,
+        task=first,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    add_task_to_day(
+        db=db,
+        task=second,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    add_task_to_day(
+        db=db,
+        task=third,
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{earliest.id}/move",
+        data={"direction": "down"},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert _queue_rows(response.text) == [
+        ("1", "Beta item"),
+        ("2", "Alpha item"),
+        ("3", "Gamma item"),
+    ]
+    assert "source-tasks-heading" not in response.text
+    assert "today-plan-summary" not in response.text
+    assert "disabled" in _move_button(
+        response.text,
+        "Beta item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Beta item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Alpha item",
+        "up",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Alpha item",
+        "down",
+    )
+    assert "disabled" not in _move_button(
+        response.text,
+        "Gamma item",
+        "up",
+    )
+    assert "disabled" in _move_button(
+        response.text,
+        "Gamma item",
+        "down",
+    )
 
 
 def test_today_page_row_shows_planned_session_count_and_focus_time(

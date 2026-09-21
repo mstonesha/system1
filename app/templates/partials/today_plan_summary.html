@@ -1,0 +1,35 @@
+<div
+    id="today-plan-summary"
+    class="today-plan-summary"
+    {% if swap_oob %}
+        hx-swap-oob="outerHTML"
+    {% endif %}
+>
+
+    <p class="today-plan-summary-focus">
+        {{ plan_totals.planned_sessions }}
+        {% if plan_totals.planned_sessions == 1 %}
+            planned session
+        {% else %}
+            planned sessions
+        {% endif %}
+        ·
+        {{ plan_totals.focus_minutes }} min
+        {% if plan_totals.focus_minutes >= 60 %}
+            ({{ plan_totals.focus_label }})
+        {% endif %}
+    </p>
+
+    {% if plan_totals.break_minutes %}
+
+        <p class="today-plan-summary-breaks">
+            Including breaks between sessions:
+            {{ plan_totals.including_breaks_minutes }} min
+            {% if plan_totals.including_breaks_minutes >= 60 %}
+                ({{ plan_totals.including_breaks_label }})
+            {% endif %}
+        </p>
+
+    {% endif %}
+
+</div>

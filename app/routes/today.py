@@ -18,7 +18,7 @@ from app.services.today import (
 )
 from app.time import today
 
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.templating import templates
 
@@ -252,17 +252,28 @@ def add_to_today_from_page(
 
 @router.post("/{daily_task_id}/commit-sessions")
 def commit_planned_sessions(
+    request: Request,
     daily_task_id: int,
     planned_sessions: int = Form(...),
     target_date: date = Form(...),
     db: Session = Depends(get_db),
 ):
+    is_htmx = (
+        request.headers.get("HX-Request", "").lower()
+        == "true"
+    )
+
     daily_task = db.get(
         DailyTask,
         daily_task_id,
     )
 
     if daily_task is None:
+        if is_htmx:
+            return HTMLResponse(
+                content="DailyTask not found.",
+                status_code=404,
+            )
         raise HTTPException(
             status_code=404,
             detail="DailyTask not found.",
@@ -275,9 +286,48 @@ def commit_planned_sessions(
             planned_sessions=planned_sessions,
         )
     except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
         raise HTTPException(
             status_code=409,
             detail=str(exc),
+        )
+
+    if is_htmx:
+        selected_date = daily_task.date
+        daily_tasks = get_daily_tasks_for_date(
+            db=db,
+            target_date=selected_date,
+        )
+        settings = get_settings()
+        index = next(
+            i
+            for i, item in enumerate(daily_tasks)
+            if item.id == daily_task.id
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/today_commit_sessions.html",
+            context={
+                "daily_task": daily_task,
+                "queue_position": index + 1,
+                "is_first": index == 0,
+                "is_last": index == len(daily_tasks) - 1,
+                "selected_date": selected_date,
+                "plan_totals": plan_display_totals(
+                    daily_tasks,
+                    focus_session_minutes=(
+                        settings.focus_session_minutes
+                    ),
+                    break_duration_minutes=(
+                        settings.break_duration_minutes
+                    ),
+                ),
+                "swap_oob": True,
+            },
         )
 
     return RedirectResponse(
@@ -287,6 +337,7 @@ def commit_planned_sessions(
 
 @router.post("/{daily_task_id}/move")
 def move_daily_task_on_page(
+    request: Request,
     daily_task_id: int,
     direction: str = Form(...),
     db: Session = Depends(get_db),
@@ -314,6 +365,19 @@ def move_daily_task_on_page(
         raise HTTPException(
             status_code=409,
             detail=str(exc),
+        )
+
+    if request.headers.get("HX-Request", "").lower() == "true":
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/today_queue.html",
+            context={
+                "daily_tasks": get_daily_tasks_for_date(
+                    db=db,
+                    target_date=selected_date,
+                ),
+                "selected_date": selected_date,
+            },
         )
 
     return RedirectResponse(
