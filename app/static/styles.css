@@ -1712,27 +1712,71 @@ button[type="submit"].primary:hover {
         margin-bottom: var(--space-lg);
     }
 
-    .app-name {
-        font-size: 2.25rem;
-    }
-
     .primary-navigation {
-        grid-template-columns: 1fr;
-        gap: 0.4rem;
-
-        margin-bottom: var(--space-sm);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.35rem;
     }
 
     .nav-tab {
-        border: 1px solid var(--border-strong);
-        border-radius: var(--radius-small);
+        min-height: var(--control-touch-min);
+        padding: 0.45rem 0.5rem;
 
-        min-height: 2.75rem;
+        font-size: 1rem;
     }
 
     .workspace {
-        min-height: 420px;
+        min-height: 0;
         padding: var(--space-lg);
+    }
+}
+
+
+@media (max-width: 480px) {
+
+    .app-shell {
+        width: min(
+            calc(100% - 0.75rem),
+            var(--content-width)
+        );
+
+        min-height: 0;
+
+        padding-top: var(--space-md);
+        padding-bottom: var(--space-md);
+    }
+
+    .app-header {
+        margin-bottom: var(--space-sm);
+    }
+
+    .app-name {
+        font-size: 1.45rem;
+    }
+
+    .user-context {
+        margin-top: 0.2rem;
+
+        font-size: 1rem;
+    }
+
+    .user-context span {
+        margin: 0 0.2rem;
+    }
+
+    .primary-navigation {
+        gap: 0.25rem;
+    }
+
+    .nav-tab {
+        min-height: var(--control-touch-min);
+        padding: 0.4rem 0.3rem;
+
+        font-size: 0.9rem;
+    }
+
+    .workspace {
+        min-height: 0;
+        padding: var(--space-sm);
     }
 }
 
