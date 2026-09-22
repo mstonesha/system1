@@ -4,6 +4,8 @@ import pytest
 
 from app.models import Task
 from app.services.tasks import (
+    DEFAULT_TASK_AREA,
+    TASK_AREAS,
     TASK_PATH_SEPARATOR,
     cancel_task,
     complete_task,
@@ -11,6 +13,7 @@ from app.services.tasks import (
     task_ancestry_label,
     task_ancestor_titles,
     task_breadcrumb,
+    update_task_area,
     update_task_title,
 )
 
@@ -109,6 +112,99 @@ def test_create_task_accepts_200_character_title(db):
 
     assert task.title == title
     assert len(task.title) == 200
+
+
+def test_create_task_defaults_area_to_general(db, make_task):
+    created = create_task(db, title="Unspecified area")
+    factory = make_task("Factory task")
+
+    assert created.area == DEFAULT_TASK_AREA
+    assert factory.area == DEFAULT_TASK_AREA
+    assert created.area is not None
+    assert factory.area is not None
+
+
+def test_create_task_stores_each_allowed_area(db):
+    for area in TASK_AREAS:
+        task = create_task(
+            db,
+            title=f"Task for {area}",
+            area=area,
+        )
+        assert task.area == area
+        assert task.area is not None
+
+
+def test_create_task_rejects_invalid_area(db):
+    with pytest.raises(
+        ValueError,
+        match="Invalid task area",
+    ):
+        create_task(
+            db,
+            title="Bad area",
+            area="not-an-area",
+        )
+
+    assert db.query(Task).count() == 0
+
+
+def test_create_subtask_inherits_parent_area(db):
+    parent_area = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+    parent = create_task(
+        db,
+        title="Parent",
+        area=parent_area,
+    )
+    child = create_task(
+        db,
+        title="Child",
+        parent_task_id=parent.id,
+    )
+
+    assert child.area == parent.area
+    assert child.area == parent_area
+    assert child.area is not None
+
+
+def test_update_task_area_validates_and_does_not_cascade(
+    db,
+):
+    other_areas = [
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    ]
+    parent_area, next_area = other_areas[0], other_areas[1]
+    parent = create_task(
+        db,
+        title="Parent",
+        area=parent_area,
+    )
+    child = create_task(
+        db,
+        title="Child",
+        parent_task_id=parent.id,
+    )
+
+    updated = update_task_area(db, parent, next_area)
+
+    assert updated.area == next_area
+    db.refresh(child)
+    assert child.area == parent_area
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid task area",
+    ):
+        update_task_area(db, parent, "not-an-area")
+
+    db.refresh(parent)
+    assert parent.area == next_area
 
 
 def test_root_task_has_no_ancestry(db, make_task):

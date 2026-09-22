@@ -7,6 +7,15 @@ from app.time import utc_now
 MAX_TASK_TITLE_LENGTH = 200
 TASK_PATH_SEPARATOR = " › "
 
+DEFAULT_TASK_AREA = "general"
+TASK_AREAS = (
+    "general",
+    "work",
+    "home",
+    "development",
+)
+ALLOWED_TASK_AREAS = frozenset(TASK_AREAS)
+
 
 def get_root_tasks(db: Session) -> list[Task]:
     return (
@@ -79,14 +88,47 @@ def normalize_task_title(title: str) -> str:
     return cleaned
 
 
+def normalize_task_area(area: str) -> str:
+    cleaned = area.strip().lower()
+
+    if cleaned not in ALLOWED_TASK_AREAS:
+        raise ValueError(
+            "Invalid task area."
+        )
+
+    return cleaned
+
+
+def _area_for_new_task(
+    db: Session,
+    parent_task_id: int | None,
+    area: str | None,
+) -> str:
+    if area is not None:
+        return normalize_task_area(area)
+
+    if parent_task_id is not None:
+        parent = db.get(Task, parent_task_id)
+        if parent is not None:
+            return parent.area
+
+    return DEFAULT_TASK_AREA
+
+
 def create_task(
     db: Session,
     title: str,
     parent_task_id: int | None = None,
+    area: str | None = None,
 ) -> Task:
     task = Task(
         title=normalize_task_title(title),
         parent_task_id=parent_task_id,
+        area=_area_for_new_task(
+            db,
+            parent_task_id,
+            area,
+        ),
     )
 
     db.add(task)
@@ -154,6 +196,19 @@ def update_task_title(
     title: str,
 ) -> Task:
     task.title = normalize_task_title(title)
+
+    db.commit()
+    db.refresh(task)
+
+    return task
+
+
+def update_task_area(
+    db: Session,
+    task: Task,
+    area: str,
+) -> Task:
+    task.area = normalize_task_area(area)
 
     db.commit()
     db.refresh(task)

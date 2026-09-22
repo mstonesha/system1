@@ -120,7 +120,7 @@ def _schema_facts(connection) -> dict:
 
 
 def _assert_current_schema(facts: dict) -> None:
-    assert facts["alembic_head"] == "c3f8e2a1b0d4"
+    assert facts["alembic_head"] == "d4b8c1e0a2f5"
     assert facts["tables"] >= {
         "tasks",
         "daily_tasks",
@@ -144,6 +144,7 @@ def _assert_current_schema(facts: dict) -> None:
         )
 
     assert facts["columns"][("tasks", "due_date")] == "date"
+    assert facts["columns"][("tasks", "area")] == "character varying"
     assert facts["columns"][("daily_tasks", "date")] == "date"
 
     assert "FOREIGN KEY (parent_task_id) REFERENCES tasks(id)" in facts[
@@ -224,6 +225,59 @@ def test_alembic_upgrade_head_on_empty_database():
                 _run_alembic(connection, "head")
                 connection.commit()
                 _assert_current_schema(_schema_facts(connection))
+        finally:
+            verify_engine.dispose()
+    finally:
+        _drop_verify_database(admin)
+        admin.dispose()
+
+
+def test_alembic_task_area_backfills_existing_rows():
+    admin = _admin_engine()
+
+    try:
+        _drop_verify_database(admin)
+        _create_verify_database(admin)
+
+        verify_engine = create_engine(_verify_url())
+        try:
+            with verify_engine.connect() as connection:
+                _run_alembic(connection, "c3f8e2a1b0d4")
+                connection.commit()
+
+                connection.execute(
+                    text(
+                        "INSERT INTO tasks "
+                        "(title, status, created_at, "
+                        "priority, sort_order) "
+                        "VALUES "
+                        "('Legacy task', 'active', NOW(), 3, 0)"
+                    )
+                )
+                connection.commit()
+
+                _run_alembic(connection, "head")
+                connection.commit()
+
+                area = connection.execute(
+                    text(
+                        "SELECT area FROM tasks "
+                        "WHERE title = 'Legacy task'"
+                    )
+                ).scalar_one()
+                assert area == "general"
+
+                column = connection.execute(
+                    text(
+                        "SELECT is_nullable, column_default "
+                        "FROM information_schema.columns "
+                        "WHERE table_schema = 'public' "
+                        "AND table_name = 'tasks' "
+                        "AND column_name = 'area'"
+                    )
+                ).one()
+                assert column.is_nullable == "NO"
+                assert column.column_default is None
         finally:
             verify_engine.dispose()
     finally:

@@ -35,6 +35,12 @@ class Task(Base):
         default="active",
     )
 
+    area: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="general",
+    )
+
     priority: Mapped[int] = mapped_column(
         Integer,
         default=3,

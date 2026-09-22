@@ -145,7 +145,7 @@ def test_volume_and_invariants(generated_eval, eval_db):
     version = eval_db.execute(
         text("SELECT version_num FROM alembic_version")
     ).scalar_one()
-    assert version == "c3f8e2a1b0d4"
+    assert version == "d4b8c1e0a2f5"
 
     task_ids = {task.id for task in eval_db.query(Task)}
     seen_pairs: set[tuple[int, date]] = set()
