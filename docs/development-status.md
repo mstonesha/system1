@@ -24,8 +24,26 @@ the pytest suite:
 - **Timezone handling** — UTC storage, `APP_TIMEZONE` calendar
   interpretation, DST-aware day bounds
 - **Current UI** — server-rendered Jinja2 + HTMX for Task List,
-  Today, Timer, Review (not claimed as a separately named redesign
-  milestone in-repo)
+  Today, Timer, Review. HTMX is progressive enhancement, not an
+  SPA. Phone work is responsive CSS, not a second application
+- **M10A Daily Plan interaction** — complete. M10A.1 layout,
+  sticky header, and long-title/clarity refinements. M10A.2
+  targeted HTMX for Move Up/Down, Save/Update Plan, and
+  Add/Remove from Day, with normal POST/303 fallback; Timer,
+  date navigation, auth, and top-level nav remain full-page.
+  M10A.3 desktop/mouse drag-and-drop queue ordering; the
+  server validates a complete permutation and stays
+  authoritative for `sort_order`; Up/Down remain the
+  keyboard/touch/no-JS fallback
+- **M10B responsive/mobile usability** — complete. M10B.1 Daily
+  Plan stacks at 900px (was 1100px), queue before source tree,
+  session controls stack when narrow, drag handle hidden for
+  coarse pointers. M10B.2 compact phone shell, one-row primary
+  nav, reduced identity/padding/min-heights, no sticky mobile
+  nav. M10B.3 tighter Task List indent at ≤480px; hierarchy and
+  44px targets kept. M10B.4 Review tables still pan
+  horizontally; the task column is sticky at ≤480px; no
+  columns hidden and no card duplicate
 - **Deterministic analytics** — outcomes, dayparts, task_age,
   planning, change, drilldown
 - **Production analytical internal boundary** — typed read-only
@@ -64,9 +82,10 @@ Command:
 docker compose --profile test run --rm test
 ```
 
-Result (this documentation snapshot): **562 passed**, 2 warnings
+Result (this documentation snapshot): **578 passed**, 2 warnings
 (Starlette `httpx` TestClient deprecation; `anyio.abc.BlockingPortal`
-alias deprecation), ~135s.
+alias deprecation), ~120s. Those warnings are known and not
+treated as fixed.
 
 The suite includes Alembic upgrade/downgrade/upgrade verification
 against `system1_test` only.
@@ -82,9 +101,11 @@ Consistent with the current code and README direction:
 - Multi-user architecture
 - Packaging for nontechnical users
 
-## Near-term next milestones
+## Near-term direction
 
-Architectural, not an implementation plan for this change:
+Architectural, not an implementation plan. M10A and M10B are
+complete. No further M10 slice is queued; the next
+implementation work is open pending a deliberate decision.
 
 1. Consolidate documentation (done)
 2. Production analytical internal boundary (done)
@@ -94,9 +115,15 @@ Architectural, not an implementation plan for this change:
 6. Production Compose / Caddy / backup readiness (done;
    Hostinger Traefik overlay added; first VPS still operator work)
 7. Deploy a first personal instance
-8. Dogfood with real personal data
+8. Use Akrasia seriously in day-to-day work; identify real
+   friction before adding features
 9. Evaluate analytics against real usage before expanding agent
    autonomy
+
+Hermes / Enkrateia_One remain a future possibility. Agent
+access stays through bounded analytical interfaces; do not rush
+agent integration. Deployment and operational improvements
+remain valid where already documented.
 
 ## Current project boundary
 
