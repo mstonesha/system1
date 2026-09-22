@@ -1563,11 +1563,11 @@ button[type="submit"].primary:hover {
 -------------------------------------------------- */
 
 .new-task-area {
-    margin-top: var(--space-xl);
+    margin-bottom: var(--space-xl);
 
-    padding-top: var(--space-md);
+    padding-bottom: var(--space-md);
 
-    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .new-task-toggle {

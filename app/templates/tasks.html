@@ -40,14 +40,6 @@ Task List | {{ settings.app_name }}
     </div>
 
 
-    <div
-        id="task-list"
-        class="task-list"
-    >
-        {% include "partials/task_tree.html" %}
-    </div>
-
-
     <div class="new-task-area">
 
         <button
@@ -116,6 +108,14 @@ Task List | {{ settings.app_name }}
 
         </form>
 
+    </div>
+
+
+    <div
+        id="task-list"
+        class="task-list"
+    >
+        {% include "partials/task_tree.html" %}
     </div>
 
 </section>

@@ -270,6 +270,27 @@ def test_task_list_hierarchy_remains_intact_with_inactive_child(
     assert _task_status_labels(shown.text) == ["Completed"]
 
 
+def test_task_list_add_new_task_appears_before_tree(
+    client,
+    make_task,
+):
+    make_task("Quiet work")
+
+    page = client.get("/")
+
+    assert page.status_code == 200
+    html = page.text
+
+    heading_at = html.index('class="task-list-heading"')
+    add_at = html.index('class="new-task-area"')
+    tree_at = html.index('class="task-tree"')
+
+    assert heading_at < add_at < tree_at
+    assert html.count('id="new-task-form"') == 1
+    assert 'hx-post="/tasks/create"' in html
+    assert 'hx-target="#task-list"' in html
+
+
 def test_task_list_active_actions_have_visible_text_and_labels(
     client,
     make_task,
