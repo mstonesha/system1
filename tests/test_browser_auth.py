@@ -470,6 +470,21 @@ def test_csrf_required_on_state_changing_form(
     assert db.query(Task).count() == before
 
 
+def test_cancel_stale_requires_csrf(client, db, make_task):
+    client.inject_csrf = False
+    task = make_task(
+        "Old untouched",
+        created_at=utc_now() - timedelta(days=40),
+    )
+
+    response = client.post("/tasks/cancel-stale")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == GENERIC_CSRF_DETAIL
+    db.expire_all()
+    assert db.get(Task, task.id).status == "active"
+
+
 def test_wrong_csrf_is_forbidden(client, db):
     client.inject_csrf = False
     before = db.query(Task).count()

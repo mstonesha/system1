@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models import Task
 from app.services.tasks import (
     OLDEST_TASK_SORT,
+    cancel_stale_tasks as cancel_stale_tasks_service,
     cancel_task as cancel_task_service,
     complete_task as complete_task_service,
     create_task as create_task_service,
@@ -17,6 +18,7 @@ from app.services.tasks import (
     update_task,
 )
 from app.templating import templates
+from app.time import utc_now
 
 
 router = APIRouter(
@@ -235,6 +237,30 @@ def complete_task(
             content=str(exc),
             status_code=409,
         )
+
+    return render_task_tree(
+        request=request,
+        db=db,
+        show_inactive=show_inactive,
+        sort=task_sort,
+    )
+
+
+@router.post("/tasks/cancel-stale")
+def cancel_stale_tasks(
+    request: Request,
+    show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
+    cancel_stale_tasks_service(
+        db=db,
+        as_of=utc_now(),
+    )
 
     return render_task_tree(
         request=request,

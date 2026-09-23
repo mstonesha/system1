@@ -1,9 +1,12 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from app.models import Task
+from app.services import tasks as task_services
+from app.time import utc_now
 from app.services.tasks import (
     ALL_AREAS_FILTER,
     DEFAULT_TASK_AREA,
@@ -11,9 +14,11 @@ from app.services.tasks import (
     OLDEST_TASK_SORT,
     TASK_AREAS,
     TASK_PATH_SEPARATOR,
+    cancel_stale_tasks,
     cancel_task,
     complete_task,
     create_task,
+    find_stale_tasks,
     filter_task_tree_by_area,
     normalize_area_filter,
     normalize_task_sort,
@@ -1284,3 +1289,605 @@ def test_sorting_does_not_rewrite_sort_order(client, db, make_task):
     assert response.status_code == 200
     db.refresh(task)
     assert task.sort_order == 7
+
+
+STALE_AS_OF = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+
+
+def _created_before(days: int, *, seconds: int = 0) -> datetime:
+    return STALE_AS_OF - timedelta(days=days, seconds=seconds)
+
+
+def _stale_ids(db, as_of=STALE_AS_OF) -> list[int]:
+    return [
+        task.id
+        for task in find_stale_tasks(db, as_of)
+    ]
+
+
+def _add_session(
+    task,
+    make_daily_task,
+    make_work_session,
+    *,
+    session_state: str,
+    started_at: datetime | None = None,
+):
+    daily_task = make_daily_task(task)
+    return make_work_session(
+        daily_task,
+        session_state=session_state,
+        started_at=started_at,
+        outcome=(
+            "progress"
+            if session_state == "completed"
+            else None
+        ),
+    )
+
+
+def test_find_stale_tasks_keeps_a_29_day_old_untouched_task(
+    db,
+    make_task,
+):
+    task = make_task(
+        "Recent enough",
+        created_at=_created_before(29),
+    )
+
+    assert _stale_ids(db) == []
+    db.refresh(task)
+    assert task.status == "active"
+
+
+def test_find_stale_tasks_keeps_a_task_exactly_30_days_old(
+    db,
+    make_task,
+):
+    make_task(
+        "Exactly thirty",
+        created_at=_created_before(30),
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_find_stale_tasks_returns_an_untouched_task_older_than_30_days(
+    db,
+    make_task,
+):
+    task = make_task(
+        "Forgotten",
+        created_at=_created_before(30, seconds=1),
+    )
+
+    assert _stale_ids(db) == [task.id]
+    db.refresh(task)
+    assert task.status == "active"
+
+
+def test_find_stale_tasks_uses_the_supplied_as_of_boundary(
+    db,
+    make_task,
+):
+    created_at = datetime(2026, 1, 1, 8, 30, tzinfo=timezone.utc)
+    task = make_task("Boundary", created_at=created_at)
+    exact = created_at + timedelta(days=30)
+
+    assert find_stale_tasks(db, exact) == []
+    assert _stale_ids(
+        db,
+        exact + timedelta(seconds=1),
+    ) == [task.id]
+
+
+def test_running_work_session_protects_a_task(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    task = make_task(
+        "In progress",
+        created_at=_created_before(40),
+    )
+    _add_session(
+        task,
+        make_daily_task,
+        make_work_session,
+        session_state="running",
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_completed_work_session_protects_a_task(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    task = make_task(
+        "Worked",
+        created_at=_created_before(40),
+    )
+    _add_session(
+        task,
+        make_daily_task,
+        make_work_session,
+        session_state="completed",
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_child_work_session_protects_the_parent(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    parent = make_task(
+        "Parent",
+        created_at=_created_before(50),
+    )
+    child = make_task(
+        "Child",
+        parent=parent,
+        created_at=_created_before(40),
+    )
+    _add_session(
+        child,
+        make_daily_task,
+        make_work_session,
+        session_state="completed",
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_grandchild_work_session_protects_the_ancestor_chain(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    parent = make_task(
+        "Parent",
+        created_at=_created_before(60),
+    )
+    child = make_task(
+        "Child",
+        parent=parent,
+        created_at=_created_before(50),
+    )
+    grandchild = make_task(
+        "Grandchild",
+        parent=child,
+        created_at=_created_before(40),
+    )
+    untouched_sibling = make_task(
+        "Untouched sibling",
+        parent=parent,
+        created_at=_created_before(45),
+    )
+    _add_session(
+        grandchild,
+        make_daily_task,
+        make_work_session,
+        session_state="completed",
+    )
+
+    assert _stale_ids(db) == [untouched_sibling.id]
+
+
+def test_young_child_protects_an_old_parent(db, make_task):
+    parent = make_task(
+        "Old parent",
+        created_at=_created_before(60),
+    )
+    make_task(
+        "Young child",
+        parent=parent,
+        created_at=_created_before(5),
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_young_cancelled_child_still_protects_an_old_parent(
+    db,
+    make_task,
+):
+    parent = make_task(
+        "Old parent",
+        created_at=_created_before(60),
+    )
+    make_task(
+        "Young cancelled child",
+        parent=parent,
+        status="cancelled",
+        created_at=_created_before(5),
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_old_parent_and_old_child_with_no_sessions_are_both_stale(
+    db,
+    make_task,
+):
+    parent = make_task(
+        "Old parent",
+        created_at=_created_before(60),
+    )
+    child = make_task(
+        "Old child",
+        parent=parent,
+        created_at=_created_before(40),
+    )
+
+    assert _stale_ids(db) == [parent.id, child.id]
+
+
+def test_completed_and_cancelled_tasks_are_not_stale(
+    db,
+    make_task,
+):
+    make_task(
+        "Finished",
+        status="completed",
+        created_at=_created_before(40),
+    )
+    make_task(
+        "Dropped",
+        status="cancelled",
+        created_at=_created_before(40),
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_planned_daily_task_without_a_session_does_not_protect(
+    db,
+    make_task,
+    make_daily_task,
+):
+    task = make_task(
+        "Only planned",
+        created_at=_created_before(40),
+    )
+    make_daily_task(task, state="planned")
+
+    assert _stale_ids(db) == [task.id]
+
+
+def test_removed_daily_task_without_a_session_does_not_protect(
+    db,
+    make_task,
+    make_daily_task,
+):
+    task = make_task(
+        "Removed from a day",
+        created_at=_created_before(40),
+    )
+    make_daily_task(task, state="removed")
+
+    assert _stale_ids(db) == [task.id]
+
+
+def test_historical_work_session_protects_a_task_forever(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    task = make_task(
+        "Worked long ago",
+        created_at=_created_before(100),
+    )
+    _add_session(
+        task,
+        make_daily_task,
+        make_work_session,
+        session_state="completed",
+        started_at=_created_before(90),
+    )
+
+    assert _stale_ids(db) == []
+
+
+def test_find_stale_tasks_orders_by_created_at_then_id(
+    db,
+    make_task,
+):
+    shared = _created_before(50)
+    second = make_task("Second id", created_at=shared)
+    earlier = make_task(
+        "Earlier",
+        created_at=_created_before(70),
+    )
+    first = make_task("First id", created_at=shared)
+    later = make_task(
+        "Later",
+        created_at=_created_before(31, seconds=1),
+    )
+
+    assert _stale_ids(db) == [
+        earlier.id,
+        second.id,
+        first.id,
+        later.id,
+    ]
+
+
+def test_cancel_stale_tasks_cancels_only_the_detected_set(
+    db,
+    make_task,
+    make_daily_task,
+    make_work_session,
+):
+    stale = make_task(
+        "Stale",
+        created_at=_created_before(40),
+        area="home",
+        sort_order=4,
+    )
+    protected = make_task(
+        "Protected",
+        created_at=_created_before(40),
+    )
+    recent = make_task(
+        "Recent",
+        created_at=_created_before(2),
+    )
+    _add_session(
+        protected,
+        make_daily_task,
+        make_work_session,
+        session_state="completed",
+    )
+
+    cancelled = cancel_stale_tasks(db, STALE_AS_OF)
+
+    assert [task.id for task in cancelled] == [stale.id]
+    assert stale.status == "cancelled"
+    assert stale.completed_at is None
+    assert stale.area == "home"
+    assert stale.sort_order == 4
+    assert protected.status == "active"
+    assert recent.status == "active"
+
+
+def test_cancel_stale_tasks_cancels_an_old_parent_and_child(
+    db,
+    make_task,
+):
+    parent = make_task(
+        "Old parent",
+        created_at=_created_before(60),
+    )
+    child = make_task(
+        "Old child",
+        parent=parent,
+        created_at=_created_before(40),
+    )
+
+    cancelled = cancel_stale_tasks(db, STALE_AS_OF)
+
+    assert [task.id for task in cancelled] == [
+        parent.id,
+        child.id,
+    ]
+    assert parent.status == "cancelled"
+    assert child.status == "cancelled"
+
+
+def test_cancel_stale_tasks_rolls_back_when_a_mark_fails(
+    db,
+    make_task,
+    monkeypatch,
+):
+    first = make_task(
+        "First",
+        created_at=_created_before(40),
+    )
+    second = make_task(
+        "Second",
+        created_at=_created_before(35),
+    )
+    original = task_services.mark_task_cancelled
+
+    def fail_second(task):
+        if task.id == second.id:
+            raise RuntimeError("mark failed")
+        original(task)
+
+    monkeypatch.setattr(
+        task_services,
+        "mark_task_cancelled",
+        fail_second,
+    )
+
+    with pytest.raises(RuntimeError, match="mark failed"):
+        cancel_stale_tasks(db, STALE_AS_OF)
+
+    db.expire_all()
+    assert db.get(Task, first.id).status == "active"
+    assert db.get(Task, second.id).status == "active"
+
+
+def test_cancel_stale_tasks_rolls_back_when_commit_fails(
+    db,
+    make_task,
+    monkeypatch,
+):
+    task = make_task(
+        "Stale",
+        created_at=_created_before(40),
+    )
+
+    def fail_commit():
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(db, "commit", fail_commit)
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        cancel_stale_tasks(db, STALE_AS_OF)
+
+    db.expire_all()
+    assert db.get(Task, task.id).status == "active"
+
+
+def test_cancel_task_does_not_cascade_to_children(
+    db,
+    make_task,
+):
+    parent = make_task("Parent")
+    child = make_task("Child", parent=parent)
+
+    cancel_task(db, parent)
+
+    db.refresh(child)
+    assert parent.status == "cancelled"
+    assert child.status == "active"
+
+
+def test_cancel_stale_route_cancels_the_branch_and_keeps_list_state(
+    client,
+    db,
+    make_task,
+):
+    now = utc_now()
+    parent = make_task(
+        "Stale parent",
+        created_at=now - timedelta(days=60),
+    )
+    child = make_task(
+        "Stale child",
+        parent=parent,
+        created_at=now - timedelta(days=40),
+    )
+    recent = make_task(
+        "Recent work",
+        created_at=now - timedelta(days=2),
+    )
+
+    oldest = client.post(
+        "/tasks/cancel-stale",
+        data={
+            "show_inactive": "true",
+            "sort": "oldest",
+        },
+    )
+    newest = client.post(
+        "/tasks/cancel-stale",
+        data={
+            "show_inactive": "true",
+            "sort": "newest",
+        },
+    )
+    hidden = client.post(
+        "/tasks/cancel-stale",
+        data={"sort": "oldest"},
+    )
+
+    assert oldest.status_code == 200
+    assert _task_titles(oldest.text) == [
+        "Stale parent",
+        "Stale child",
+        "Recent work",
+    ]
+    assert f'id="children-{parent.id}"' in oldest.text
+    assert _task_status_labels(oldest.text) == [
+        "Cancelled",
+        "Cancelled",
+    ]
+    assert _task_titles(newest.text) == [
+        "Recent work",
+        "Stale parent",
+        "Stale child",
+    ]
+    assert _task_titles(hidden.text) == ["Recent work"]
+    db.refresh(parent)
+    db.refresh(child)
+    db.refresh(recent)
+    assert parent.status == "cancelled"
+    assert child.status == "cancelled"
+    assert recent.status == "active"
+
+
+def test_cancel_stale_confirmation_is_posted_and_explicit(client):
+    page = client.get("/")
+    html = page.text
+    confirm_at = html.index('id="stale-cancel-confirm"')
+    list_at = html.index('id="task-list"')
+    confirmation = html[
+        confirm_at:html.index("</div>", confirm_at)
+    ]
+
+    opening = html[
+        html.rindex("<div", 0, confirm_at):html.index(">", confirm_at)
+    ]
+
+    assert page.status_code == 200
+    assert confirm_at < list_at
+    assert "Cancel stale tasks" in html
+    assert "hidden" in opening
+    assert 'hx-post="/tasks/cancel-stale"' in confirmation
+    assert 'hx-target="#task-list"' in confirmation
+    assert 'hx-include="#show-inactive, #task-sort"' in confirmation
+    assert "Yes" in confirmation
+    assert "No" in confirmation
+    opener = html[
+        html.index('class="stale-task-toggle"'):confirm_at
+    ]
+    assert "hx-post" not in opener
+
+
+def test_cancel_stale_route_rejects_invalid_sort_before_cancelling(
+    client,
+    db,
+    make_task,
+):
+    task = make_task(
+        "Forgotten",
+        created_at=utc_now() - timedelta(days=40),
+    )
+
+    response = client.post(
+        "/tasks/cancel-stale",
+        data={"sort": "sideways"},
+    )
+
+    assert response.status_code == 409
+    db.refresh(task)
+    assert task.status == "active"
+
+
+def test_task_list_reads_do_not_cancel_stale_tasks(
+    client,
+    db,
+    make_task,
+):
+    task = make_task(
+        "Forgotten",
+        created_at=utc_now() - timedelta(days=45),
+    )
+
+    home = client.get("/")
+    tree = client.get("/task-tree")
+
+    assert home.status_code == 200
+    assert tree.status_code == 200
+    assert "Forgotten" in home.text
+    db.refresh(task)
+    assert task.status == "active"
+
+
+def test_stale_cancellation_is_not_scheduled_or_started_automatically():
+    main = Path("app/main.py").read_text(encoding="utf-8")
+
+    assert "cancel_stale_tasks" not in main
+    assert "find_stale_tasks" not in main
+    assert "scheduler" not in main.lower()

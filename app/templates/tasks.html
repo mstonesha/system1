@@ -68,7 +68,61 @@ Task List | {{ settings.app_name }}
 
             </label>
 
+            <button
+                type="button"
+                class="stale-task-toggle"
+                onclick="
+                    const box = document.getElementById(
+                        'stale-cancel-confirm'
+                    );
+                    box.hidden = !box.hidden;
+                "
+            >
+                Cancel stale tasks
+            </button>
+
         </div>
+
+    </div>
+
+    <div
+        id="stale-cancel-confirm"
+        class="task-confirmation task-confirmation-cancel"
+        hidden
+    >
+
+        <span class="task-confirmation-question">
+            Cancel untouched tasks older than 30 days, including their untouched subtasks?
+        </span>
+
+        <button
+            type="button"
+            class="confirmation-yes"
+            hx-post="/tasks/cancel-stale"
+            hx-target="#task-list"
+            hx-swap="innerHTML"
+            hx-include="#show-inactive, #task-sort"
+            hx-on::after-request="
+                if (event.detail.successful) {
+                    document.getElementById(
+                        'stale-cancel-confirm'
+                    ).hidden = true;
+                }
+            "
+        >
+            Yes
+        </button>
+
+        <button
+            type="button"
+            onclick="
+                document.getElementById(
+                    'stale-cancel-confirm'
+                ).hidden = true;
+            "
+        >
+            No
+        </button>
 
     </div>
 

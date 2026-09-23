@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 
-from app.models import Task
+from app.models import DailyTask, Task
 from app.time import utc_now
 
 
@@ -16,6 +18,8 @@ TASK_AREAS = (
     "development",
 )
 ALLOWED_TASK_AREAS = frozenset(TASK_AREAS)
+
+STALE_AFTER_DAYS = 30
 
 OLDEST_TASK_SORT = "oldest"
 NEWEST_TASK_SORT = "newest"
@@ -271,6 +275,106 @@ def cancel_task(
     db.refresh(task)
 
     return task
+
+
+def find_stale_tasks(
+    db: Session,
+    as_of: datetime,
+    stale_after_days: int = STALE_AFTER_DAYS,
+) -> list[Task]:
+    """Return active tasks whose whole descendant tree is old and unworked.
+
+    Read-only. ``as_of`` is the only clock. A task is stale when it is
+    active, it and every descendant are strictly older than
+    ``stale_after_days``, and no work session exists anywhere in that tree.
+    """
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("as_of must be timezone-aware.")
+
+    threshold = timedelta(days=stale_after_days)
+    tasks = (
+        db.query(Task)
+        .order_by(Task.created_at, Task.id)
+        .all()
+    )
+    children_by_parent: dict[int, list[Task]] = {}
+
+    for task in tasks:
+        if task.parent_task_id is not None:
+            children_by_parent.setdefault(
+                task.parent_task_id,
+                [],
+            ).append(task)
+
+    worked_task_ids = {
+        task_id
+        for (task_id,) in db.query(DailyTask.task_id)
+        .join(DailyTask.work_sessions)
+        .distinct()
+    }
+    old_and_unworked: dict[int, bool] = {}
+
+    def subtree_is_old_and_unworked(task: Task) -> bool:
+        cached = old_and_unworked.get(task.id)
+        if cached is not None:
+            return cached
+
+        if task.id in worked_task_ids:
+            old_and_unworked[task.id] = False
+            return False
+
+        if as_of - task.created_at <= threshold:
+            old_and_unworked[task.id] = False
+            return False
+
+        for child in children_by_parent.get(task.id, []):
+            if not subtree_is_old_and_unworked(child):
+                old_and_unworked[task.id] = False
+                return False
+
+        old_and_unworked[task.id] = True
+        return True
+
+    return [
+        task
+        for task in tasks
+        if task.status == "active"
+        and subtree_is_old_and_unworked(task)
+    ]
+
+
+def cancel_stale_tasks(
+    db: Session,
+    as_of: datetime,
+    stale_after_days: int = STALE_AFTER_DAYS,
+) -> list[Task]:
+    """Cancel every stale task in one transaction.
+
+    Each row is marked on its own. This does not call ``cancel_task``
+    and does not walk descendants beyond the detector's result.
+    """
+    stale = find_stale_tasks(
+        db,
+        as_of,
+        stale_after_days=stale_after_days,
+    )
+
+    if not stale:
+        return []
+
+    try:
+        for task in stale:
+            mark_task_cancelled(task)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    for task in stale:
+        db.refresh(task)
+
+    return stale
 
 
 def reopen_task(
