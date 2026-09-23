@@ -8,6 +8,11 @@ from app.auth.http import require_browser_session
 from app.config import get_settings
 from app.database import get_db
 from app.models import DailyTask, Task
+from app.services.tasks import (
+    ALL_AREAS_FILTER,
+    filter_task_tree_by_area,
+    normalize_area_filter,
+)
 from app.services.today import (
     add_task_to_day,
     get_carry_forward_candidates,
@@ -111,6 +116,7 @@ def remove_from_today(
 def _daily_plan_context(
     db: Session,
     selected_date: date,
+    area: str | None = None,
 ) -> dict:
     previous_date = selected_date - timedelta(days=1)
     next_date = selected_date + timedelta(days=1)
@@ -181,10 +187,13 @@ def _daily_plan_context(
             ],
         }
 
-    task_tree = [
-        build_task_tree(task)
-        for task in root_tasks
-    ]
+    task_tree = filter_task_tree_by_area(
+        [
+            build_task_tree(task)
+            for task in root_tasks
+        ],
+        area,
+    )
 
     settings = get_settings()
     plan_totals = plan_display_totals(
@@ -208,6 +217,7 @@ def _daily_plan_context(
         "carry_forward_by_task_id":
             carry_forward_by_task_id,
         "plan_totals": plan_totals,
+        "area_filter": area,
     }
 
 
@@ -229,18 +239,60 @@ def today_page(
     )
 
 
+@router.get("/source-tree")
+def today_source_tree(
+    request: Request,
+    target_date: date | None = None,
+    area: str = ALL_AREAS_FILTER,
+    db: Session = Depends(get_db),
+):
+    selected_date = target_date or today()
+
+    try:
+        area_filter = normalize_area_filter(area)
+    except ValueError as exc:
+        return HTMLResponse(
+            content=str(exc),
+            status_code=409,
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/today_source_body.html",
+        context=_daily_plan_context(
+            db,
+            selected_date,
+            area_filter,
+        ),
+    )
+
+
 @router.post("/add-from-page")
 def add_to_today_from_page(
     request: Request,
     task_id: int = Form(...),
     target_date: date = Form(...),
     planned_sessions: int | None = Form(None),
+    area: str = Form(ALL_AREAS_FILTER),
     db: Session = Depends(get_db),
 ):
     is_htmx = (
         request.headers.get("HX-Request", "").lower()
         == "true"
     )
+
+    try:
+        area_filter = normalize_area_filter(area)
+    except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
 
     task = db.get(Task, task_id)
 
@@ -281,6 +333,7 @@ def add_to_today_from_page(
                 **_daily_plan_context(
                     db,
                     target_date,
+                    area_filter,
                 ),
                 "swap_queue_oob": True,
             },
@@ -516,12 +569,26 @@ def remove_from_today_page(
     request: Request,
     daily_task_id: int,
     target_date: date = Form(...),
+    area: str = Form(ALL_AREAS_FILTER),
     db: Session = Depends(get_db),
 ):
     is_htmx = (
         request.headers.get("HX-Request", "").lower()
         == "true"
     )
+
+    try:
+        area_filter = normalize_area_filter(area)
+    except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
 
     daily_task = db.get(
         DailyTask,
@@ -563,6 +630,7 @@ def remove_from_today_page(
                 **_daily_plan_context(
                     db,
                     target_date,
+                    area_filter,
                 ),
                 "swap_queue_oob": True,
             },

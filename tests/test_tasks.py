@@ -4,14 +4,18 @@ import pytest
 
 from app.models import Task
 from app.services.tasks import (
+    ALL_AREAS_FILTER,
     DEFAULT_TASK_AREA,
     TASK_AREAS,
     TASK_PATH_SEPARATOR,
     cancel_task,
     complete_task,
     create_task,
+    filter_task_tree_by_area,
+    normalize_area_filter,
     task_ancestry_label,
     task_ancestor_titles,
+    task_area_label,
     task_breadcrumb,
     update_task_area,
     update_task_title,
@@ -207,6 +211,427 @@ def test_update_task_area_validates_and_does_not_cascade(
     assert parent.area == next_area
 
 
+def test_filter_task_tree_preserves_ancestors_and_omits_unrelated(
+    db,
+):
+    other_areas = [
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    ]
+    parent_area, child_area, sibling_area = other_areas[:3]
+    parent = create_task(
+        db,
+        title="Parent",
+        area=parent_area,
+    )
+    matching_child = create_task(
+        db,
+        title="Matching child",
+        parent_task_id=parent.id,
+        area=child_area,
+    )
+    sibling = create_task(
+        db,
+        title="Sibling",
+        parent_task_id=parent.id,
+        area=sibling_area,
+    )
+    tree = [
+        {
+            "task": parent,
+            "children": [
+                {"task": matching_child, "children": []},
+                {"task": sibling, "children": []},
+            ],
+        }
+    ]
+
+    filtered = filter_task_tree_by_area(tree, child_area)
+    assert [node["task"].id for node in filtered] == [
+        parent.id
+    ]
+    assert [
+        node["task"].id
+        for node in filtered[0]["children"]
+    ] == [matching_child.id]
+
+    parent_only = filter_task_tree_by_area(
+        tree,
+        parent_area,
+    )
+    assert [node["task"].id for node in parent_only] == [
+        parent.id
+    ]
+    assert parent_only[0]["children"] == []
+
+    unfiltered = filter_task_tree_by_area(tree, None)
+    assert len(unfiltered[0]["children"]) == 2
+
+
+def test_normalize_area_filter_accepts_all_and_rejects_invalid():
+    assert normalize_area_filter(None) is None
+    assert normalize_area_filter(ALL_AREAS_FILTER) is None
+    assert normalize_area_filter("") is None
+
+    for area in TASK_AREAS:
+        assert normalize_area_filter(area) == area
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid task area",
+    ):
+        normalize_area_filter("not-an-area")
+
+
+def test_create_form_stores_work_area(client, db):
+    work = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+
+    response = client.post(
+        "/tasks/create",
+        data={
+            "title": "Desk task",
+            "area": work,
+        },
+    )
+
+    assert response.status_code == 200
+    task = db.query(Task).one()
+    assert task.area == work
+    assert task_area_label(work) in response.text
+
+
+def test_create_form_omitted_area_defaults_to_general(
+    client,
+    db,
+):
+    response = client.post(
+        "/tasks/create",
+        data={"title": "No area chosen"},
+    )
+
+    assert response.status_code == 200
+    task = db.query(Task).one()
+    assert task.area == DEFAULT_TASK_AREA
+
+
+def test_create_form_rejects_invalid_area(client, db):
+    response = client.post(
+        "/tasks/create",
+        data={
+            "title": "Bad area",
+            "area": "not-an-area",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "Invalid task area" in response.text
+    assert db.query(Task).count() == 0
+
+
+def test_create_form_rejects_all_as_stored_area(client, db):
+    response = client.post(
+        "/tasks/create",
+        data={
+            "title": "All is not an area",
+            "area": ALL_AREAS_FILTER,
+        },
+    )
+
+    assert response.status_code == 409
+    assert db.query(Task).count() == 0
+
+
+def test_edit_form_rejects_all_as_stored_area(client, db):
+    task = create_task(
+        db,
+        title="Keep area",
+        area=DEFAULT_TASK_AREA,
+    )
+
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data={
+            "title": "Keep area",
+            "area": ALL_AREAS_FILTER,
+        },
+    )
+
+    assert response.status_code == 409
+    db.refresh(task)
+    assert task.area == DEFAULT_TASK_AREA
+    assert task.title == "Keep area"
+
+
+def test_subtask_form_has_no_area_selector_and_inherits(
+    client,
+    db,
+):
+    parent_area = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+    parent = create_task(
+        db,
+        title="Parent",
+        area=parent_area,
+    )
+
+    page = client.get("/")
+    html = page.text
+    form_at = html.index(
+        f'id="subtask-form-{parent.id}"'
+    )
+    children_at = html.index(
+        f'id="children-{parent.id}"',
+        form_at,
+    )
+    subtask_form = html[form_at:children_at]
+
+    assert page.status_code == 200
+    assert 'name="area"' not in subtask_form
+    assert "<select" not in subtask_form
+
+    created = client.post(
+        f"/tasks/{parent.id}/subtasks",
+        data={"title": "Child"},
+    )
+
+    assert created.status_code == 200
+    child = (
+        db.query(Task)
+        .filter(Task.parent_task_id == parent.id)
+        .one()
+    )
+    assert child.area == parent_area
+
+
+def test_edit_form_exposes_current_area(client, db):
+    area = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+    task = create_task(
+        db,
+        title="Named task",
+        area=area,
+    )
+
+    page = client.get("/")
+    html = page.text
+
+    assert page.status_code == 200
+    assert f'id="edit-area-{task.id}"' in html
+    assert f'name="area"' in html
+    assert (
+        f'value="{area}"'
+        in html[html.index(f'id="edit-area-{task.id}"'):]
+    )
+    assert "selected" in html[
+        html.index(f'id="edit-area-{task.id}"'):
+    ]
+
+
+def test_edit_form_updates_title_and_area(client, db):
+    areas = [
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    ]
+    task = create_task(
+        db,
+        title="Before",
+        area=areas[0],
+    )
+
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data={
+            "title": "After",
+            "area": areas[1],
+        },
+    )
+
+    assert response.status_code == 200
+    db.refresh(task)
+    assert task.title == "After"
+    assert task.area == areas[1]
+    assert task_area_label(areas[1]) in response.text
+
+
+def test_edit_form_invalid_area_does_not_persist_title(
+    client,
+    db,
+):
+    task = create_task(
+        db,
+        title="Keep title",
+        area=DEFAULT_TASK_AREA,
+    )
+
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data={
+            "title": "Should not save",
+            "area": "not-an-area",
+        },
+    )
+
+    assert response.status_code == 409
+    db.refresh(task)
+    assert task.title == "Keep title"
+    assert task.area == DEFAULT_TASK_AREA
+
+
+def test_edit_form_invalid_title_does_not_persist_area(
+    client,
+    db,
+):
+    original_area = DEFAULT_TASK_AREA
+    next_area = next(
+        item
+        for item in TASK_AREAS
+        if item != original_area
+    )
+    task = create_task(
+        db,
+        title="Keep title",
+        area=original_area,
+    )
+
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data={
+            "title": "   ",
+            "area": next_area,
+        },
+    )
+
+    assert response.status_code == 409
+    db.refresh(task)
+    assert task.title == "Keep title"
+    assert task.area == original_area
+
+
+def test_edit_form_title_only_leaves_area_unchanged(
+    client,
+    db,
+):
+    area = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+    task = create_task(
+        db,
+        title="Old title",
+        area=area,
+    )
+
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data={"title": "New title"},
+    )
+
+    assert response.status_code == 200
+    db.refresh(task)
+    assert task.title == "New title"
+    assert task.area == area
+
+
+def test_edit_form_parent_area_does_not_cascade(
+    client,
+    db,
+):
+    areas = [
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    ]
+    parent = create_task(
+        db,
+        title="Parent",
+        area=areas[0],
+    )
+    child = create_task(
+        db,
+        title="Child",
+        parent_task_id=parent.id,
+    )
+
+    response = client.post(
+        f"/tasks/{parent.id}/edit",
+        data={
+            "title": "Parent",
+            "area": areas[1],
+        },
+    )
+
+    assert response.status_code == 200
+    db.refresh(parent)
+    db.refresh(child)
+    assert parent.area == areas[1]
+    assert child.area == areas[0]
+
+
+def test_task_list_renders_area_labels_on_every_row(
+    client,
+    db,
+):
+    titles = {}
+    for area in TASK_AREAS:
+        task = create_task(
+            db,
+            title=f"{area} root",
+            area=area,
+        )
+        titles[task.id] = task_area_label(area)
+
+    page = client.get("/")
+    html = page.text
+
+    assert page.status_code == 200
+    labels = _task_area_labels(html)
+    assert labels == [
+        titles[task.id]
+        for task in db.query(Task).order_by(Task.id)
+    ]
+    assert "task-status" not in html or _task_status_labels(
+        html
+    ) == []
+    for area in TASK_AREAS:
+        assert task_area_label(area) in html
+        assert f'value="{area}"' in html
+
+
+def test_task_list_area_labels_stay_separate_from_status(
+    client,
+    db,
+    make_task,
+):
+    done = make_task("Done work", area=DEFAULT_TASK_AREA)
+    complete_task(db, done)
+
+    tree = client.get(
+        "/task-tree",
+        params={"show_inactive": True},
+    )
+
+    assert tree.status_code == 200
+    assert _task_status_labels(tree.text) == ["Completed"]
+    assert _task_area_labels(tree.text) == [
+        task_area_label(DEFAULT_TASK_AREA)
+    ]
+    assert 'class="task-area"' in tree.text
+    assert 'class="task-status"' in tree.text
+
+
 def test_root_task_has_no_ancestry(db, make_task):
     task = make_task("Root work")
 
@@ -262,6 +687,13 @@ def test_deeper_nested_task_ancestry(db, make_task):
 def _task_status_labels(html: str) -> list[str]:
     return re.findall(
         r'class="task-status"\s*>\s*([^<]+?)\s*<',
+        html,
+    )
+
+
+def _task_area_labels(html: str) -> list[str]:
+    return re.findall(
+        r'class="task-area"\s*>\s*([^<]+?)\s*<',
         html,
     )
 

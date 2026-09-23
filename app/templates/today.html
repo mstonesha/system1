@@ -96,9 +96,38 @@ Daily Plan | {{ settings.app_name }}
                     Task List
                 </h2>
 
-                <span class="today-pane-note">
-                    Select tasks for this day
-                </span>
+                <div class="today-source-toolbar">
+
+                    <span class="today-pane-note">
+                        Select tasks for this day
+                    </span>
+
+                    <label class="today-area-filter">
+                        <span class="visually-hidden">
+                            Filter by Area
+                        </span>
+
+                        <select
+                            id="area-filter"
+                            name="area"
+                            hx-get="/today/source-tree"
+                            hx-target="#today-source-body"
+                            hx-swap="outerHTML"
+                            hx-trigger="change"
+                            hx-vals='{"target_date": "{{ selected_date }}"}'
+                        >
+                            <option value="{{ all_areas_filter }}">
+                                All Areas
+                            </option>
+                            {% for area in task_areas %}
+                                <option value="{{ area }}">
+                                    {{ task_area_label(area) }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </label>
+
+                </div>
 
             </header>
 

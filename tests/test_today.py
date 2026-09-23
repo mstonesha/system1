@@ -3,9 +3,12 @@ from datetime import timedelta
 
 import pytest
 
-from app.models import DailyTask
+from app.models import DailyTask, Task
 from app.services.sessions import commit_work_session, start_work_session
 from app.services.tasks import (
+    ALL_AREAS_FILTER,
+    DEFAULT_TASK_AREA,
+    TASK_AREAS,
     TASK_PATH_SEPARATOR,
     cancel_task,
     complete_task,
@@ -43,6 +46,49 @@ def _queue_ancestry(html: str) -> str | None:
         return None
 
     return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def _source_tree_titles(html: str) -> list[str]:
+    return re.findall(
+        r'class="today-tree-title"\s*>\s*([^<]+?)\s*<',
+        html,
+    )
+
+
+def _mixed_area_source_tasks(db, make_task):
+    areas = [
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    ]
+    parent_area, child_area, sibling_area = areas[:3]
+    parent = make_task(
+        "Filtered parent",
+        area=parent_area,
+    )
+    matching_child = make_task(
+        "Matching child",
+        parent=parent,
+        area=child_area,
+    )
+    sibling = make_task(
+        "Unrelated sibling",
+        parent=parent,
+        area=sibling_area,
+    )
+    general = make_task(
+        "General root",
+        area=DEFAULT_TASK_AREA,
+    )
+    return {
+        "parent": parent,
+        "matching_child": matching_child,
+        "sibling": sibling,
+        "general": general,
+        "parent_area": parent_area,
+        "child_area": child_area,
+        "sibling_area": sibling_area,
+    }
 
 
 def test_removed_daily_task_can_be_replanned(
@@ -1287,6 +1333,13 @@ def test_today_page_selection_forms_use_htmx_workspace_bodies(
     assert 'id="today-queue-body"' in page.text
     assert "hx-swap-oob" not in page.text
     assert "this.form.submit()" not in page.text
+    assert 'id="area-filter"' in page.text
+    assert 'hx-include="#area-filter"' in page.text
+    area_filter_at = page.text.index('id="area-filter"')
+    source_at = page.text.index('id="today-source-body"')
+    assert area_filter_at < source_at
+    assert 'hx-get="/today/source-tree"' in page.text
+    assert 'hx-target="#today-source-body"' in page.text
 
 
 def test_today_page_reading_order_puts_queue_before_source_tree(
@@ -2287,4 +2340,330 @@ def test_reorder_requires_csrf(
         item.task.title
         for item in _planned_queue(db, target_date)
     ] == ["Alpha", "Beta"]
+
+
+def test_today_page_all_areas_shows_full_active_source_tree(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    titles = _source_tree_titles(page.text)
+    assert titles == [
+        tree["parent"].title,
+        tree["matching_child"].title,
+        tree["sibling"].title,
+        tree["general"].title,
+    ]
+    assert f'value="{ALL_AREAS_FILTER}"' in page.text
+    for area in TASK_AREAS:
+        assert f'value="{area}"' in page.text
+
+
+def test_development_child_retains_nonmatching_parent_context(
+    client,
+    db,
+    make_task,
+):
+    parent_area = next(
+        item
+        for item in TASK_AREAS
+        if item != DEFAULT_TASK_AREA
+    )
+    child_area = next(
+        item
+        for item in TASK_AREAS
+        if item not in {DEFAULT_TASK_AREA, parent_area}
+    )
+    parent = make_task(
+        "Context parent",
+        area=parent_area,
+    )
+    child = make_task(
+        "Matching descendant",
+        parent=parent,
+        area=child_area,
+    )
+    unrelated = make_task(
+        "Unrelated root",
+        area=parent_area,
+    )
+
+    response = client.get(
+        "/today/source-tree",
+        params={"area": child_area},
+    )
+
+    assert response.status_code == 200
+    assert _source_tree_titles(response.text) == [
+        parent.title,
+        child.title,
+    ]
+    assert unrelated.title not in response.text
+    db.refresh(parent)
+    db.refresh(child)
+    assert parent.area == parent_area
+    assert child.area == child_area
+
+
+def test_source_tree_filter_keeps_matching_child_and_parent(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    target_date = today()
+
+    response = client.get(
+        "/today/source-tree",
+        params={
+            "target_date": str(target_date),
+            "area": tree["child_area"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert 'id="today-source-body"' in response.text
+    assert 'id="today-queue-body"' not in response.text
+    assert "source-tasks-heading" not in response.text
+    assert 'id="area-filter"' not in response.text
+    titles = _source_tree_titles(response.text)
+    assert titles == [
+        tree["parent"].title,
+        tree["matching_child"].title,
+    ]
+    assert tree["sibling"].title not in response.text
+    assert tree["general"].title not in response.text
+
+
+def test_source_tree_filter_matching_parent_omits_nonmatching_children(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+
+    response = client.get(
+        "/today/source-tree",
+        params={"area": tree["parent_area"]},
+    )
+
+    assert response.status_code == 200
+    titles = _source_tree_titles(response.text)
+    assert titles == [tree["parent"].title]
+    assert tree["matching_child"].title not in response.text
+    assert tree["sibling"].title not in response.text
+
+
+def test_source_tree_filter_each_allowed_area(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    expected = {
+        tree["parent_area"]: [tree["parent"].title],
+        tree["child_area"]: [
+            tree["parent"].title,
+            tree["matching_child"].title,
+        ],
+        tree["sibling_area"]: [
+            tree["parent"].title,
+            tree["sibling"].title,
+        ],
+        DEFAULT_TASK_AREA: [tree["general"].title],
+    }
+
+    for area in TASK_AREAS:
+        response = client.get(
+            "/today/source-tree",
+            params={"area": area},
+        )
+        assert response.status_code == 200, area
+        assert _source_tree_titles(response.text) == (
+            expected[area]
+        )
+
+
+def test_source_tree_all_restores_full_tree(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+
+    filtered = client.get(
+        "/today/source-tree",
+        params={"area": tree["child_area"]},
+    )
+    restored = client.get(
+        "/today/source-tree",
+        params={"area": ALL_AREAS_FILTER},
+    )
+
+    assert filtered.status_code == 200
+    assert restored.status_code == 200
+    assert tree["sibling"].title not in filtered.text
+    assert _source_tree_titles(restored.text) == [
+        tree["parent"].title,
+        tree["matching_child"].title,
+        tree["sibling"].title,
+        tree["general"].title,
+    ]
+
+
+def test_source_tree_filter_does_not_mutate_tasks_or_queue(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    target_date = today()
+    daily = add_task_to_day(
+        db=db,
+        task=tree["parent"],
+        target_date=target_date,
+        planned_sessions=2,
+    )
+    area_before = {
+        task.id: task.area
+        for task in db.query(Task)
+    }
+    state_before = daily.state
+    planned_before = daily.planned_sessions
+
+    response = client.get(
+        "/today/source-tree",
+        params={
+            "target_date": str(target_date),
+            "area": tree["child_area"],
+        },
+    )
+    page = client.get(
+        "/today/page",
+        params={"target_date": str(target_date)},
+    )
+
+    assert response.status_code == 200
+    assert 'id="today-queue-body"' not in response.text
+    db.expire_all()
+    assert {
+        task.id: task.area
+        for task in db.query(Task)
+    } == area_before
+    db.refresh(daily)
+    assert daily.state == state_before
+    assert daily.planned_sessions == planned_before
+    assert _queue_rows(page.text) == [
+        ("1", tree["parent"].title),
+    ]
+    assert tree["parent"].title in page.text
+
+
+def test_source_tree_invalid_area_is_rejected(
+    client,
+    db,
+    make_task,
+):
+    make_task("Untouched")
+    before = db.query(Task).count()
+
+    response = client.get(
+        "/today/source-tree",
+        params={"area": "not-an-area"},
+    )
+
+    assert response.status_code == 409
+    assert "Invalid task area" in response.text
+    assert db.query(Task).count() == before
+
+
+def test_htmx_add_while_filtered_preserves_area_and_updates_queue(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    target_date = today()
+    add_task_to_day(
+        db=db,
+        task=tree["general"],
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        "/today/add-from-page",
+        data={
+            "task_id": str(tree["matching_child"].id),
+            "target_date": str(target_date),
+            "planned_sessions": "1",
+            "area": tree["child_area"],
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    titles = _source_tree_titles(response.text)
+    assert titles == [
+        tree["parent"].title,
+        tree["matching_child"].title,
+    ]
+    assert tree["sibling"].title not in titles
+    assert tree["general"].title not in titles
+    assert _queue_rows(response.text) == [
+        ("1", tree["general"].title),
+        ("2", tree["matching_child"].title),
+    ]
+    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert 'id="today-source-body"' in response.text
+    assert 'id="today-queue-body"' in response.text
+
+
+def test_htmx_remove_while_filtered_preserves_area_and_updates_queue(
+    client,
+    db,
+    make_task,
+):
+    tree = _mixed_area_source_tasks(db, make_task)
+    target_date = today()
+    kept = add_task_to_day(
+        db=db,
+        task=tree["general"],
+        target_date=target_date,
+        planned_sessions=1,
+    )
+    removed = add_task_to_day(
+        db=db,
+        task=tree["matching_child"],
+        target_date=target_date,
+        planned_sessions=1,
+    )
+
+    response = client.post(
+        f"/today/{removed.id}/remove-from-page",
+        data={
+            "target_date": str(target_date),
+            "area": tree["child_area"],
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    titles = _source_tree_titles(response.text)
+    assert titles == [
+        tree["parent"].title,
+        tree["matching_child"].title,
+    ]
+    assert tree["sibling"].title not in titles
+    assert _queue_rows(response.text) == [
+        ("1", tree["general"].title),
+    ]
+    assert kept.id
+    assert 'hx-swap-oob="outerHTML"' in response.text
 

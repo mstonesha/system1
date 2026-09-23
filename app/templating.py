@@ -2,8 +2,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.services.tasks import (
+    ALL_AREAS_FILTER,
+    DEFAULT_TASK_AREA,
+    TASK_AREAS,
     TASK_PATH_SEPARATOR,
     task_ancestry_label,
+    task_area_label,
 )
 
 
@@ -39,4 +43,14 @@ templates.env.globals["task_ancestry_label"] = (
 )
 templates.env.globals["task_path_separator"] = (
     TASK_PATH_SEPARATOR
+)
+templates.env.globals["task_areas"] = TASK_AREAS
+templates.env.globals["default_task_area"] = (
+    DEFAULT_TASK_AREA
+)
+templates.env.globals["all_areas_filter"] = (
+    ALL_AREAS_FILTER
+)
+templates.env.globals["task_area_label"] = (
+    task_area_label
 )

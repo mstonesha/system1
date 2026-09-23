@@ -11,7 +11,7 @@ from app.services.tasks import (
     create_task as create_task_service,
     get_root_tasks,
     reopen_task as reopen_task_service,
-    update_task_title,
+    update_task,
 )
 from app.templating import templates
 
@@ -96,6 +96,7 @@ def task_tree(
 def create_task_from_form(
     request: Request,
     title: str = Form(...),
+    area: str | None = Form(None),
     show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
@@ -103,6 +104,7 @@ def create_task_from_form(
         create_task_service(
             db=db,
             title=title,
+            area=area,
         )
     except ValueError as exc:
         return HTMLResponse(
@@ -249,6 +251,7 @@ def edit_task(
     task_id: int,
     request: Request,
     title: str = Form(...),
+    area: str | None = Form(None),
     show_inactive: bool = Form(False),
     db: Session = Depends(get_db),
 ):
@@ -267,10 +270,11 @@ def edit_task(
         )
 
     try:
-        update_task_title(
+        update_task(
             db=db,
             task=task,
             title=title,
+            area=area,
         )
     except ValueError as exc:
         return HTMLResponse(

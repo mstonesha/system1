@@ -88,6 +88,26 @@ Task List | {{ settings.app_name }}
                 maxlength="200"
             >
 
+            <label class="visually-hidden" for="new-task-area">
+                Area
+            </label>
+
+            <select
+                id="new-task-area"
+                name="area"
+            >
+                {% for area in task_areas %}
+                    <option
+                        value="{{ area }}"
+                        {% if area == default_task_area %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ task_area_label(area) }}
+                    </option>
+                {% endfor %}
+            </select>
+
             <button
                 type="submit"
                 class="primary"

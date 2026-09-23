@@ -8,6 +8,7 @@ MAX_TASK_TITLE_LENGTH = 200
 TASK_PATH_SEPARATOR = " › "
 
 DEFAULT_TASK_AREA = "general"
+ALL_AREAS_FILTER = "all"
 TASK_AREAS = (
     "general",
     "work",
@@ -88,6 +89,10 @@ def normalize_task_title(title: str) -> str:
     return cleaned
 
 
+def task_area_label(area: str) -> str:
+    return area.replace("-", " ").title()
+
+
 def normalize_task_area(area: str) -> str:
     cleaned = area.strip().lower()
 
@@ -99,12 +104,55 @@ def normalize_task_area(area: str) -> str:
     return cleaned
 
 
+def normalize_area_filter(area: str | None) -> str | None:
+    if area is None:
+        return None
+
+    cleaned = area.strip().lower()
+
+    if cleaned in {"", ALL_AREAS_FILTER}:
+        return None
+
+    if cleaned not in ALLOWED_TASK_AREAS:
+        raise ValueError(
+            "Invalid task area."
+        )
+
+    return cleaned
+
+
+def filter_task_tree_by_area(
+    nodes: list[dict],
+    area: str | None,
+) -> list[dict]:
+    if area is None:
+        return nodes
+
+    filtered: list[dict] = []
+
+    for node in nodes:
+        children = filter_task_tree_by_area(
+            node["children"],
+            area,
+        )
+
+        if node["task"].area == area or children:
+            filtered.append(
+                {
+                    "task": node["task"],
+                    "children": children,
+                }
+            )
+
+    return filtered
+
+
 def _area_for_new_task(
     db: Session,
     parent_task_id: int | None,
     area: str | None,
 ) -> str:
-    if area is not None:
+    if area is not None and area.strip():
         return normalize_task_area(area)
 
     if parent_task_id is not None:
@@ -209,6 +257,29 @@ def update_task_area(
     area: str,
 ) -> Task:
     task.area = normalize_task_area(area)
+
+    db.commit()
+    db.refresh(task)
+
+    return task
+
+
+def update_task(
+    db: Session,
+    task: Task,
+    title: str,
+    area: str | None = None,
+) -> Task:
+    new_title = normalize_task_title(title)
+    new_area = None
+
+    if area is not None and area.strip():
+        new_area = normalize_task_area(area)
+
+    task.title = new_title
+
+    if new_area is not None:
+        task.area = new_area
 
     db.commit()
     db.refresh(task)
