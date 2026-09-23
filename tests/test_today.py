@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -2666,4 +2666,44 @@ def test_htmx_remove_while_filtered_preserves_area_and_updates_queue(
     ]
     assert kept.id
     assert 'hx-swap-oob="outerHTML"' in response.text
+
+
+def test_daily_plan_source_order_keeps_sort_order_when_age_disagrees(
+    client,
+    make_task,
+):
+    later = make_task(
+        "Later created",
+        created_at=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        sort_order=0,
+    )
+    earlier = make_task(
+        "Earlier created",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        sort_order=5,
+    )
+    make_task(
+        "Early child",
+        parent=later,
+        created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        sort_order=2,
+    )
+    make_task(
+        "Late child",
+        parent=later,
+        created_at=datetime(2026, 1, 4, tzinfo=timezone.utc),
+        sort_order=1,
+    )
+
+    page = client.get("/today/page")
+
+    assert page.status_code == 200
+    assert _source_tree_titles(page.text) == [
+        later.title,
+        "Late child",
+        "Early child",
+        earlier.title,
+    ]
+    assert later.sort_order == 0
+    assert earlier.sort_order == 5
 

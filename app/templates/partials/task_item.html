@@ -82,7 +82,7 @@
                     hx-post="/tasks/{{ task.id }}/edit"
                     hx-target="#task-list"
                     hx-swap="innerHTML"
-                    hx-include="#show-inactive"
+                    hx-include="#show-inactive, #task-sort"
                 >
 
                     {% include "partials/csrf_field.html" %}
@@ -265,7 +265,7 @@
                         hx-post="/tasks/{{ task.id }}/reopen"
                         hx-target="#task-list"
                         hx-swap="innerHTML"
-                        hx-include="#show-inactive"
+                        hx-include="#show-inactive, #task-sort"
                     >
                         Reopen
                     </button>
@@ -297,7 +297,7 @@
                 hx-post="/tasks/{{ task.id }}/complete"
                 hx-target="#task-list"
                 hx-swap="innerHTML"
-                hx-include="#show-inactive"
+                hx-include="#show-inactive, #task-sort"
             >
                 Yes
             </button>
@@ -332,7 +332,7 @@
                 hx-post="/tasks/{{ task.id }}/cancel"
                 hx-target="#task-list"
                 hx-swap="innerHTML"
-                hx-include="#show-inactive"
+                hx-include="#show-inactive, #task-sort"
             >
                 Yes
             </button>
@@ -358,7 +358,7 @@
             hx-post="/tasks/{{ task.id }}/subtasks"
             hx-target="#task-list"
             hx-swap="innerHTML"
-            hx-include="#show-inactive"
+            hx-include="#show-inactive, #task-sort"
             hx-on::after-request="
                 this.reset();
                 this.hidden = true;
@@ -416,7 +416,7 @@
         class="task-children"
     >
 
-        {% for child in task.children %}
+        {% for child in sort_task_siblings(task.children, task_sort) %}
 
             {% if show_inactive or child.status == "active" %}
 

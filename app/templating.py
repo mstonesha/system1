@@ -4,10 +4,14 @@ from app.config import get_settings
 from app.services.tasks import (
     ALL_AREAS_FILTER,
     DEFAULT_TASK_AREA,
+    OLDEST_TASK_SORT,
     TASK_AREAS,
     TASK_PATH_SEPARATOR,
+    TASK_SORTS,
+    sort_task_siblings,
     task_ancestry_label,
     task_area_label,
+    task_sort_label,
 )
 
 
@@ -53,4 +57,14 @@ templates.env.globals["all_areas_filter"] = (
 )
 templates.env.globals["task_area_label"] = (
     task_area_label
+)
+templates.env.globals["task_sorts"] = TASK_SORTS
+templates.env.globals["default_task_sort"] = (
+    OLDEST_TASK_SORT
+)
+templates.env.globals["task_sort_label"] = (
+    task_sort_label
+)
+templates.env.globals["sort_task_siblings"] = (
+    sort_task_siblings
 )

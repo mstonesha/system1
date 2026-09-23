@@ -17,7 +17,38 @@ Task List | {{ settings.app_name }}
             Task List
         </h1>
 
-        <label class="inactive-toggle">
+        <div class="task-list-controls">
+
+            <label class="task-sort-control">
+
+                <span class="visually-hidden">
+                    Sort tasks
+                </span>
+
+                <select
+                    id="task-sort"
+                    name="sort"
+                    hx-get="/task-tree"
+                    hx-target="#task-list"
+                    hx-swap="innerHTML"
+                    hx-trigger="change"
+                    hx-include="#show-inactive, #task-sort"
+                >
+                    {% for sort_value in task_sorts %}
+                        <option
+                            value="{{ sort_value }}"
+                            {% if sort_value == task_sort %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ task_sort_label(sort_value) }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+            </label>
+
+            <label class="inactive-toggle">
 
             <input
                 id="show-inactive"
@@ -28,14 +59,16 @@ Task List | {{ settings.app_name }}
                 hx-target="#task-list"
                 hx-swap="innerHTML"
                 hx-trigger="change"
-                hx-include="this"
+                hx-include="#show-inactive, #task-sort"
             >
 
             <span>
                 Show completed / cancelled
             </span>
 
-        </label>
+            </label>
+
+        </div>
 
     </div>
 
@@ -65,7 +98,7 @@ Task List | {{ settings.app_name }}
             hx-post="/tasks/create"
             hx-target="#task-list"
             hx-swap="innerHTML"
-            hx-include="#show-inactive"
+            hx-include="#show-inactive, #task-sort"
             hx-on::after-request="
                 this.reset();
                 this.hidden = true;

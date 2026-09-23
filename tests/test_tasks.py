@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timezone
 
 import pytest
 
@@ -6,6 +7,8 @@ from app.models import Task
 from app.services.tasks import (
     ALL_AREAS_FILTER,
     DEFAULT_TASK_AREA,
+    NEWEST_TASK_SORT,
+    OLDEST_TASK_SORT,
     TASK_AREAS,
     TASK_PATH_SEPARATOR,
     cancel_task,
@@ -13,6 +16,8 @@ from app.services.tasks import (
     create_task,
     filter_task_tree_by_area,
     normalize_area_filter,
+    normalize_task_sort,
+    sort_task_siblings,
     task_ancestry_label,
     task_ancestor_titles,
     task_area_label,
@@ -914,3 +919,368 @@ def test_task_list_actions_keep_hierarchy_and_status(
     assert 'aria-label="Add subtask to Parent work"' in shown.text
     assert 'aria-label="Reopen Child work"' in shown.text
     assert _task_status_labels(shown.text) == ["Completed"]
+
+
+def _moment(day: int, hour: int = 0) -> datetime:
+    return datetime(2026, 1, day, hour, tzinfo=timezone.utc)
+
+
+def _task_titles(html: str) -> list[str]:
+    return re.findall(
+        r'id="task-title-\d+"[^>]*>\s*([^<]+?)\s*</span>',
+        html,
+        re.S,
+    )
+
+
+def test_sort_task_siblings_returns_a_copy():
+    older = Task(
+        id=2,
+        title="Older",
+        created_at=_moment(1),
+        sort_order=8,
+    )
+    newer = Task(
+        id=1,
+        title="Newer",
+        created_at=_moment(2),
+        sort_order=1,
+    )
+    original = [newer, older]
+
+    ordered = sort_task_siblings(original, OLDEST_TASK_SORT)
+
+    assert [task.title for task in original] == [
+        "Newer",
+        "Older",
+    ]
+    assert [task.title for task in ordered] == [
+        "Older",
+        "Newer",
+    ]
+    assert older.sort_order == 8
+    assert newer.sort_order == 1
+
+
+def test_normalize_task_sort_defaults_and_rejects():
+    assert normalize_task_sort(None) == OLDEST_TASK_SORT
+    assert normalize_task_sort("") == OLDEST_TASK_SORT
+    assert normalize_task_sort("  ") == OLDEST_TASK_SORT
+    assert normalize_task_sort(NEWEST_TASK_SORT) == (
+        NEWEST_TASK_SORT
+    )
+
+    with pytest.raises(ValueError, match="Invalid task sort"):
+        normalize_task_sort("sideways")
+
+
+def test_task_list_oldest_and_newest_root_order(client, make_task):
+    make_task("January", created_at=_moment(1), sort_order=5)
+    make_task("March", created_at=_moment(3), sort_order=1)
+    make_task("February", created_at=_moment(2), sort_order=9)
+
+    oldest = client.get("/task-tree")
+    newest = client.get(
+        "/task-tree",
+        params={"sort": NEWEST_TASK_SORT},
+    )
+
+    assert oldest.status_code == 200
+    assert newest.status_code == 200
+    assert _task_titles(oldest.text) == [
+        "January",
+        "February",
+        "March",
+    ]
+    assert _task_titles(newest.text) == [
+        "March",
+        "February",
+        "January",
+    ]
+
+
+def test_task_list_id_tie_break_follows_sort_direction(
+    client,
+    make_task,
+):
+    same_time = _moment(10)
+    make_task("First tie", created_at=same_time)
+    make_task("Second tie", created_at=same_time)
+
+    oldest = client.get("/task-tree")
+    newest = client.get(
+        "/task-tree",
+        params={"sort": NEWEST_TASK_SORT},
+    )
+
+    assert _task_titles(oldest.text) == [
+        "First tie",
+        "Second tie",
+    ]
+    assert _task_titles(newest.text) == [
+        "Second tie",
+        "First tie",
+    ]
+
+
+def test_task_list_sorts_each_sibling_group(client, make_task):
+    parent_a = make_task(
+        "Parent A",
+        created_at=_moment(1),
+    )
+    make_task(
+        "Child A1",
+        parent=parent_a,
+        created_at=_moment(3),
+    )
+    make_task(
+        "Child A2",
+        parent=parent_a,
+        created_at=_moment(2),
+    )
+    parent_b = make_task(
+        "Parent B",
+        created_at=_moment(4),
+    )
+    child_b1 = make_task(
+        "Child B1",
+        parent=parent_b,
+        created_at=_moment(5),
+    )
+    make_task(
+        "Grandchild later",
+        parent=child_b1,
+        created_at=_moment(7),
+    )
+    make_task(
+        "Grandchild earlier",
+        parent=child_b1,
+        created_at=_moment(6),
+    )
+
+    oldest = client.get("/task-tree")
+    newest = client.get(
+        "/task-tree",
+        params={"sort": NEWEST_TASK_SORT},
+    )
+
+    assert _task_titles(oldest.text) == [
+        "Parent A",
+        "Child A2",
+        "Child A1",
+        "Parent B",
+        "Child B1",
+        "Grandchild earlier",
+        "Grandchild later",
+    ]
+    assert _task_titles(newest.text) == [
+        "Parent B",
+        "Child B1",
+        "Grandchild later",
+        "Grandchild earlier",
+        "Parent A",
+        "Child A1",
+        "Child A2",
+    ]
+    assert f'id="children-{parent_a.id}"' in oldest.text
+    assert f'id="children-{child_b1.id}"' in newest.text
+
+
+def test_shown_inactive_tasks_keep_chronological_position(
+    client,
+    db,
+    make_task,
+):
+    completed = make_task(
+        "Completed early",
+        created_at=_moment(1),
+    )
+    make_task("Active middle", created_at=_moment(2))
+    cancelled = make_task(
+        "Cancelled late",
+        created_at=_moment(3),
+    )
+    complete_task(db, completed)
+    cancel_task(db, cancelled)
+
+    hidden = client.get(
+        "/task-tree",
+        params={"sort": NEWEST_TASK_SORT},
+    )
+    shown = client.get(
+        "/task-tree",
+        params={
+            "show_inactive": True,
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+
+    assert _task_titles(hidden.text) == ["Active middle"]
+    assert _task_titles(shown.text) == [
+        "Cancelled late",
+        "Active middle",
+        "Completed early",
+    ]
+    assert _task_status_labels(shown.text) == [
+        "Cancelled",
+        "Completed",
+    ]
+
+
+def test_task_sort_control_defaults_outside_the_tree(client):
+    page = client.get("/")
+    html = page.text
+    sort_at = html.index('id="task-sort"')
+    list_at = html.index('id="task-list"')
+    select_html = html[sort_at:html.index("</select>", sort_at)]
+
+    assert page.status_code == 200
+    assert sort_at < list_at
+    assert 'hx-get="/task-tree"' in html
+    assert 'hx-target="#task-list"' in html
+    assert 'hx-include="#show-inactive, #task-sort"' in html
+    assert "Oldest first" in select_html
+    assert "Newest first" in select_html
+    assert 'value="oldest"' in select_html
+    assert "selected" in select_html
+    leftover = html.replace(
+        'hx-include="#show-inactive, #task-sort"',
+        "",
+    )
+    assert 'hx-include="#show-inactive"' not in leftover
+
+
+def test_task_mutations_preserve_newest_sort(
+    client,
+    db,
+    make_task,
+):
+    january = make_task("January", created_at=_moment(1))
+    february = make_task("February", created_at=_moment(2))
+    march = make_task("March", created_at=_moment(3))
+
+    created = client.post(
+        "/tasks/create",
+        data={
+            "title": "April",
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    assert _task_titles(created.text)[:4] == [
+        "April",
+        "March",
+        "February",
+        "January",
+    ]
+
+    edited = client.post(
+        f"/tasks/{january.id}/edit",
+        data={
+            "title": "January",
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    assert _task_titles(edited.text)[0] == "April"
+    assert _task_titles(edited.text)[-1] == "January"
+
+    completed = client.post(
+        f"/tasks/{february.id}/complete",
+        data={
+            "show_inactive": "true",
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    assert _task_titles(completed.text) == [
+        "April",
+        "March",
+        "February",
+        "January",
+    ]
+
+    cancelled = client.post(
+        f"/tasks/{march.id}/cancel",
+        data={
+            "show_inactive": "true",
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    assert _task_titles(cancelled.text)[0] == "April"
+    assert "March" in _task_titles(cancelled.text)
+
+    reopened = client.post(
+        f"/tasks/{february.id}/reopen",
+        data={"sort": NEWEST_TASK_SORT},
+    )
+    assert _task_titles(reopened.text)[0] == "April"
+    assert "February" in _task_titles(reopened.text)
+
+    nested = client.post(
+        f"/tasks/{january.id}/subtasks",
+        data={
+            "title": "January child",
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    titles = _task_titles(nested.text)
+    assert titles[0] == "April"
+    january_at = titles.index("January")
+    assert titles[january_at + 1] == "January child"
+
+    toggled = client.get(
+        "/task-tree",
+        params={
+            "show_inactive": True,
+            "sort": NEWEST_TASK_SORT,
+        },
+    )
+    assert _task_titles(toggled.text)[0] == "April"
+    db.refresh(january)
+    assert january.sort_order == 0
+
+
+def test_omitted_sort_is_oldest_and_invalid_sort_is_rejected(
+    client,
+    db,
+    make_task,
+):
+    make_task("January", created_at=_moment(1))
+    make_task("March", created_at=_moment(3))
+    before = db.query(Task).count()
+
+    omitted = client.get("/task-tree")
+    blank = client.get("/task-tree", params={"sort": "  "})
+    invalid = client.get(
+        "/task-tree",
+        params={"sort": "sideways"},
+    )
+    rejected = client.post(
+        "/tasks/create",
+        data={
+            "title": "Should not persist",
+            "sort": "sideways",
+        },
+    )
+
+    assert _task_titles(omitted.text) == ["January", "March"]
+    assert _task_titles(blank.text) == ["January", "March"]
+    assert invalid.status_code == 409
+    assert "Invalid task sort" in invalid.text
+    assert rejected.status_code == 409
+    assert db.query(Task).count() == before
+
+
+def test_sorting_does_not_rewrite_sort_order(client, db, make_task):
+    task = make_task(
+        "Pinned",
+        created_at=_moment(1),
+        sort_order=7,
+    )
+
+    response = client.get(
+        "/task-tree",
+        params={"sort": NEWEST_TASK_SORT},
+    )
+
+    assert response.status_code == 200
+    db.refresh(task)
+    assert task.sort_order == 7

@@ -6,11 +6,14 @@ from app.auth.http import require_browser_session
 from app.database import get_db
 from app.models import Task
 from app.services.tasks import (
+    OLDEST_TASK_SORT,
     cancel_task as cancel_task_service,
     complete_task as complete_task_service,
     create_task as create_task_service,
     get_root_tasks,
+    normalize_task_sort,
     reopen_task as reopen_task_service,
+    sort_task_siblings,
     update_task,
 )
 from app.templating import templates
@@ -21,12 +24,31 @@ router = APIRouter(
 )
 
 
+def _resolve_task_sort(
+    sort: str | None,
+) -> tuple[str, HTMLResponse | None]:
+    try:
+        return normalize_task_sort(sort), None
+    except ValueError as exc:
+        return (
+            OLDEST_TASK_SORT,
+            HTMLResponse(
+                content=str(exc),
+                status_code=409,
+            ),
+        )
+
+
 def render_task_tree(
     request: Request,
     db: Session,
     show_inactive: bool = False,
+    sort: str = OLDEST_TASK_SORT,
 ):
-    tasks = get_root_tasks(db)
+    tasks = sort_task_siblings(
+        get_root_tasks(db),
+        sort,
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -34,6 +56,7 @@ def render_task_tree(
         context={
             "tasks": tasks,
             "show_inactive": show_inactive,
+            "task_sort": sort,
         },
     )
 
@@ -43,7 +66,10 @@ def home(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    tasks = get_root_tasks(db)
+    tasks = sort_task_siblings(
+        get_root_tasks(db),
+        OLDEST_TASK_SORT,
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -51,6 +77,7 @@ def home(
         context={
             "tasks": tasks,
             "show_inactive": False,
+            "task_sort": OLDEST_TASK_SORT,
         },
     )
 
@@ -83,12 +110,18 @@ def create_task_api(
 def task_tree(
     request: Request,
     show_inactive: bool = False,
+    sort: str | None = None,
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     return render_task_tree(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 
@@ -98,8 +131,13 @@ def create_task_from_form(
     title: str = Form(...),
     area: str | None = Form(None),
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     try:
         create_task_service(
             db=db,
@@ -116,6 +154,7 @@ def create_task_from_form(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 
@@ -125,8 +164,13 @@ def create_subtask(
     request: Request,
     title: str = Form(...),
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     parent = db.get(Task, parent_id)
 
     if parent is None:
@@ -157,6 +201,7 @@ def create_subtask(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 
@@ -165,8 +210,13 @@ def complete_task(
     task_id: int,
     request: Request,
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     task = db.get(Task, task_id)
 
     if task is None:
@@ -190,6 +240,7 @@ def complete_task(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 
@@ -198,8 +249,13 @@ def cancel_task(
     task_id: int,
     request: Request,
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     task = db.get(Task, task_id)
 
     if task is None:
@@ -217,6 +273,7 @@ def cancel_task(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 
@@ -225,8 +282,13 @@ def reopen_task(
     task_id: int,
     request: Request,
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     task = db.get(Task, task_id)
 
     if task is None:
@@ -244,6 +306,7 @@ def reopen_task(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )
 
 @router.post("/tasks/{task_id}/edit")
@@ -253,8 +316,13 @@ def edit_task(
     title: str = Form(...),
     area: str | None = Form(None),
     show_inactive: bool = Form(False),
+    sort: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    task_sort, error = _resolve_task_sort(sort)
+    if error is not None:
+        return error
+
     task = db.get(Task, task_id)
 
     if task is None:
@@ -286,4 +354,5 @@ def edit_task(
         request=request,
         db=db,
         show_inactive=show_inactive,
+        sort=task_sort,
     )

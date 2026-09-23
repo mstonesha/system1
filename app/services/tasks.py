@@ -17,6 +17,54 @@ TASK_AREAS = (
 )
 ALLOWED_TASK_AREAS = frozenset(TASK_AREAS)
 
+OLDEST_TASK_SORT = "oldest"
+NEWEST_TASK_SORT = "newest"
+TASK_SORTS = (
+    OLDEST_TASK_SORT,
+    NEWEST_TASK_SORT,
+)
+ALLOWED_TASK_SORTS = frozenset(TASK_SORTS)
+TASK_SORT_LABELS = {
+    OLDEST_TASK_SORT: "Oldest first",
+    NEWEST_TASK_SORT: "Newest first",
+}
+
+
+def normalize_task_sort(sort: str | None) -> str:
+    if sort is None:
+        return OLDEST_TASK_SORT
+
+    cleaned = sort.strip().lower()
+
+    if cleaned == "":
+        return OLDEST_TASK_SORT
+
+    if cleaned not in ALLOWED_TASK_SORTS:
+        raise ValueError(
+            "Invalid task sort."
+        )
+
+    return cleaned
+
+
+def task_sort_label(sort: str) -> str:
+    return TASK_SORT_LABELS[sort]
+
+
+def sort_task_siblings(
+    tasks: list[Task],
+    sort: str,
+) -> list[Task]:
+    """Return a new sibling list in display order.
+
+    Does not mutate the input or any ORM relationship.
+    """
+    return sorted(
+        list(tasks),
+        key=lambda task: (task.created_at, task.id),
+        reverse=sort == NEWEST_TASK_SORT,
+    )
+
 
 def get_root_tasks(db: Session) -> list[Task]:
     return (
